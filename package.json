@@ -1,0 +1,24 @@
+{
+  "name": "deearthx-v3",
+  "version": "1.0.0",
+  "description": "main",
+  "repository": {
+    "type": "git",
+    "url": "https://git.xcclyc.cn/15736060610/DeEarthX-CE.git"
+  },
+  "license": "ISC",
+  "author": "DexV3 Team",
+  "type": "module",
+  "main": "./.build/build.js",
+  "scripts": {
+    "backend": "cd ./backend && pnpm run build",
+    "upx": ".\\.build\\upx.exe .\\backend\\dist\\core.exe",
+    "tauri": "cd ./front && pnpm run tauri build",
+    "back2front": "node b2f.js b2f",
+    "build2root": "node b2f.js b2r",
+    "build": "pnpm run backend && pnpm run upx && pnpm run back2front && pnpm run tauri && pnpm run build2root"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}
