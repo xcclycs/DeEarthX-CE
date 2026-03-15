@@ -22,23 +22,18 @@ export class FileExtractor {
       const fullPath = path.join(this.modsPath, jarFilename);
 
       try {
-        let fileData: Buffer | null = null;
-        try {
-          fileData = fs.readFileSync(fullPath);
-          const mixins = await JarParser.extractMixins(fileData);
-          const infos = await JarParser.extractModInfo(fileData);
+        const hash = await this.calculateFileHash(fullPath);
+        const mixins = await JarParser.extractMixinsFromFile(fullPath);
+        const infos = await JarParser.extractModInfoFromFile(fullPath);
 
-          files.push({
-            filename: fullPath,
-            hash: crypto.createHash('sha1').update(fileData).digest('hex'),
-            mixins,
-            infos,
-          });
+        files.push({
+          filename: fullPath,
+          hash,
+          mixins,
+          infos,
+        });
 
-          logger.debug("文件已处理", { 文件名: fullPath, 绝对路径: path.resolve(fullPath), Mixin数量: mixins.length });
-        } finally {
-          fileData = null;
-        }
+        logger.debug("文件已处理", { 文件名: fullPath, 绝对路径: path.resolve(fullPath), Mixin数量: mixins.length });
       } catch (error: any) {
         logger.error("处理文件时出错", { 文件名: fullPath, 错误: error.message });
       }
@@ -46,6 +41,25 @@ export class FileExtractor {
 
     logger.debug("文件信息收集完成", { 已处理文件: files.length });
     return files;
+  }
+
+  private async calculateFileHash(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha1');
+      const stream = fs.createReadStream(filePath);
+      
+      stream.on('data', (chunk) => {
+        hash.update(chunk);
+      });
+      
+      stream.on('end', () => {
+        resolve(hash.digest('hex'));
+      });
+      
+      stream.on('error', (error) => {
+        reject(error);
+      });
+    });
   }
 
   private getJarFiles(): string[] {

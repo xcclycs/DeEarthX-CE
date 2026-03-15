@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { fastdownload, version_compare } from "../utils/utils.js";
 import got from "got";
 import p from "path";
-import { Azip } from "../utils/ziplib.js";
+import { yauzl_promise } from "../utils/ziplib.js";
 import { Config } from "../utils/config.js";
 
 interface ILInfo {
@@ -54,12 +54,12 @@ export class Minecraft {
     if (version_compare(this.minecraft, "1.18") === 1) {
       const mcpath = `${this.path}/libraries/net/minecraft/server/${this.minecraft}/server-${this.minecraft}.jar`;
       await fastdownload([`https://bmclapi2.bangbang93.com/version/${this.minecraft}/server`, mcpath]);
-      const zip = await Azip(await fs.promises.readFile(mcpath));
-      for await (const entry of zip) {
-        if (entry.entryName.startsWith("META-INF/libraries/") && !entry.entryName.endsWith("/")) {
-          console.log(entry.entryName);
-          const data = entry.getData();
-          const filepath = `${this.path}/libraries/${entry.entryName.replace("META-INF/libraries/", "")}`;
+      const zip = await yauzl_promise(await fs.promises.readFile(mcpath));
+      for (const entry of zip) {
+        if (entry.fileName.startsWith("META-INF/libraries/") && !entry.fileName.endsWith("/")) {
+          console.log(entry.fileName);
+          const data = await entry.ReadEntry;
+          const filepath = `${this.path}/libraries/${entry.fileName.replace("META-INF/libraries/", "")}`;
           const dir = p.dirname(filepath);
           await fs.promises.mkdir(dir, { recursive: true });
           await fs.promises.writeFile(filepath, data);

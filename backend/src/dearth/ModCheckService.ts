@@ -550,12 +550,12 @@ export class ModCheckService {
         jarData = fs.readFileSync(file.filename);
       }
       
-      const { Azip } = await import("../utils/ziplib.js");
-      const zipEntries = Azip(jarData);
+      const { yauzl_promise } = await import("../utils/ziplib.js");
+      const zipEntries = await yauzl_promise(jarData);
       
       for (const entry of zipEntries) {
-        if (entry.entryName === iconPath || entry.entryName.endsWith(iconPath)) {
-          const data = await entry.getData();
+        if (entry.fileName === iconPath || entry.fileName.endsWith(iconPath)) {
+          const data = await entry.ReadEntry;
           const ext = iconPath.split('.').pop()?.toLowerCase();
           const mimeType = ext === 'png' ? 'png' : 'jpeg';
           

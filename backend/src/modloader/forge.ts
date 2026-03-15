@@ -2,7 +2,7 @@ import got, { Got } from "got";
 import fs from "node:fs";
 import fse from "fs-extra";
 import { execPromise, fastdownload, version_compare, verifySHA1 } from "../utils/utils.js";
-import { Azip } from "../utils/ziplib.js";
+import { yauzl_promise } from "../utils/ziplib.js";
 import { Config } from "../utils/config.js";
 import { logger } from "../utils/logger.js";
 
@@ -84,18 +84,20 @@ export class Forge {
   async library() {
     const _downlist: [string, string][] = [];
     const data = await fs.promises.readFile(`${this.path}/forge-${this.minecraft}-${this.loaderVersion}-installer.jar`);
-    const zip = Azip(data);
+    const zip = await yauzl_promise(data);
 
-    for await (const entry of zip) {
-      if (entry.entryName === "version.json" || entry.entryName === "install_profile.json") {
-        JSON.parse((entry.getData()).toString()).libraries.forEach(async (e: any) => {
+    for (const entry of zip) {
+      if (entry.fileName === "version.json" || entry.fileName === "install_profile.json") {
+        const entryData = await entry.ReadEntry;
+        JSON.parse(entryData.toString()).libraries.forEach(async (e: any) => {
           const t = e.downloads.artifact.path;
           _downlist.push([`https://bmclapi2.bangbang93.com/maven/${t}`, `${this.path}/libraries/${t}`]);
         });
       }
 
-      if (entry.entryName === "install_profile.json") {
-        const json = JSON.parse((entry.getData()).toString()) as IForge;
+      if (entry.fileName === "install_profile.json") {
+        const entryData = await entry.ReadEntry;
+        const json = JSON.parse(entryData.toString()) as IForge;
         const vjson = await this.got.get(`version/${this.minecraft}/json`).json<IVersion>();
         console.log(`${new URL(vjson.downloads.server_mappings.url).pathname}`);
         const mojpath = this.MTP(json.data.MOJMAPS.server);

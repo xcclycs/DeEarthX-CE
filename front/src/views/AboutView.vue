@@ -36,7 +36,7 @@ async function getVersionFromJson(): Promise<VersionInfo> {
         return {
             version: '1.0.0',
             buildTime: 'Unknown',
-            author: 'Tianpao'
+            author: 'DeEarthX Team'
         };
     }
 }

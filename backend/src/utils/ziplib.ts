@@ -1,4 +1,3 @@
-import admZip from "adm-zip";
 import yauzl from "yauzl";
 import Stream from "node:stream";
 
@@ -11,7 +10,7 @@ export async function yauzl_promise(buffer: Buffer): Promise<IentryP[]> {
   const zip = await (new Promise((resolve, reject) => {
     yauzl.fromBuffer(
       buffer,
-      /*{lazyEntries:true},*/ (err, zipfile) => {
+      (err, zipfile) => {
         if (err) {
           reject(err);
           return;
@@ -43,6 +42,9 @@ export async function yauzl_promise(buffer: Buffer): Promise<IentryP[]> {
         stream.on("end", () => {
           resolve(Buffer.concat(chunks));
         });
+        stream.on("error", (err) => {
+          reject(err);
+        });
       });
     });
   };
@@ -64,16 +66,15 @@ export async function yauzl_promise(buffer: Buffer): Promise<IentryP[]> {
 
   return new Promise((resolve, reject) => {
     const entries: IentryP[] = [];
-    zip.on("entry", async (entry: yauzl.Entry) => {
-    const entryP = entry as IentryP;
-    //console.log(entry.fileName);
-    entryP.openReadStream = _openReadStream(zip, entry);
-    entryP.ReadEntry = _ReadEntry(zip, entry);
-    entries.push(entryP);
-      if (zip.entryCount === entries.length) {
-        zip.close();
-        resolve(entries);
-      }
+    zip.on("entry", (entry: yauzl.Entry) => {
+      const entryP = entry as IentryP;
+      entryP.openReadStream = _openReadStream(zip, entry);
+      entryP.ReadEntry = _ReadEntry(zip, entry);
+      entries.push(entryP);
+    });
+    zip.on("end", () => {
+      zip.close();
+      resolve(entries);
     });
     zip.on("error", (err) => {
       reject(err);
@@ -81,8 +82,15 @@ export async function yauzl_promise(buffer: Buffer): Promise<IentryP[]> {
   });
 }
 
-export function Azip(buffer: Buffer) {
-  const zip = new admZip(buffer);
-  const entries = zip.getEntries();
-  return entries;
+// 从文件路径打开 zip 文件的函数
+export async function yauzl_from_file(filePath: string): Promise<yauzl.ZipFile> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(filePath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve(zipfile);
+    });
+  });
 }
