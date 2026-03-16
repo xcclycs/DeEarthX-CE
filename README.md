@@ -1,10 +1,14 @@
-# DeEarthX V3
+# DeEarthX-CE
 
 ## 项目概述
 
 DeEarthX V3 是一个 Minecraft 整合包服务端制作工具，帮你快速把客户端整合包转换成可运行的服务端，同时提供模板管理功能。
 
 QQ群：1090666196
+
+## 文档地址
+
+文档地址：[https://dex.xcclyc.cn/](https://dex.xcclyc.cn/)
 
 ## 核心功能
 
@@ -83,5 +87,5 @@ Vue 3 + TypeScript，Tauri 2 桌面框架，Ant Design Vue UI 组件，Tailwind 
 
 ## 开发团队
 
-- **Tianpao**：核心开发
-- **XCC**：功能优化
+- **Tianpao**：核心开发，原作者
+- **XCC**：功能优化，CE版作者
