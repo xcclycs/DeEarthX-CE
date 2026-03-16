@@ -33,7 +33,8 @@ export default defineConfig({
           items: [
             { text: '核心模块', link: '/api/core' },
             { text: '后端 API', link: '/api/backend' },
-            { text: '前端 API', link: '/api/frontend' }
+            { text: '前端 API', link: '/api/frontend' },
+            { text: '错误码说明', link: '/api/error-codes' }
           ]
         }
       ]

@@ -5,6 +5,7 @@ import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, Loading
 import { useRouter, useRoute } from 'vue-router';
 import { Command } from '@tauri-apps/plugin-shell';
 import { useI18n } from 'vue-i18n';
+import { ErrorCode, createErrorInfo } from './utils/errorCodes';
 
 const router = useRouter();
 const route = useRoute();
@@ -82,9 +83,11 @@ async function runCoreProcess() {
 
     if (portStatus === 'wrong_app') {
         // 端口被其他应用占用
+        const errorInfo = createErrorInfo(ErrorCode.BACKEND_PORT_OCCUPIED);
         backendStatus.value = 'error';
-        backendErrorInfo.value = t('message.backend_port_occupied');
-        message.error(t('message.backend_port_occupied'));
+        backendErrorInfo.value = `${errorInfo.message} (错误码: ${errorInfo.code})`;
+        message.error(backendErrorInfo.value);
+        router.push(`/error?e=${encodeURIComponent(backendErrorInfo.value)}&code=${errorInfo.code}`);
         return;
     }
     
@@ -105,15 +108,19 @@ async function runCoreProcess() {
                         backendErrorInfo.value = '';
                         message.success(t('message.backend_started'));
                     } else {
+                        const errorInfo = createErrorInfo(ErrorCode.BACKEND_RESPONSE_ERROR, `HTTP 状态码: ${response.status}`);
                         backendStatus.value = 'error';
-                        backendErrorInfo.value = t('common.status_error');
-                        router.push('/error');
+                        backendErrorInfo.value = `${errorInfo.message} (错误码: ${errorInfo.code})`;
+                        message.error(backendErrorInfo.value);
+                        router.push(`/error?e=${encodeURIComponent(backendErrorInfo.value)}&code=${errorInfo.code}`);
                     }
                 } catch (error) {
                     console.error("后端连接失败:", error);
+                    const errorInfo = createErrorInfo(ErrorCode.BACKEND_CONNECTION_FAILED, error instanceof Error ? error.message : String(error));
                     backendStatus.value = 'error';
-                    backendErrorInfo.value = t('common.status_error');
-                    router.push('/error');
+                    backendErrorInfo.value = `${errorInfo.message} (错误码: ${errorInfo.code})`;
+                    message.error(backendErrorInfo.value);
+                    router.push(`/error?e=${encodeURIComponent(backendErrorInfo.value)}&code=${errorInfo.code}`);
                 }
             }, 3000); // 等待3秒让后端启动
         })
@@ -127,9 +134,11 @@ async function runCoreProcess() {
                     runCoreProcess();
                 }, 2000);
             } else {
+                const errorInfo = createErrorInfo(ErrorCode.BACKEND_START_FAILED, `已重试 ${maxRetries} 次`);
                 backendStatus.value = 'error';
-                backendErrorInfo.value = t('message.backend_start_failed', { count: maxRetries });
-                message.error(t('message.backend_start_failed', { count: maxRetries }));
+                backendErrorInfo.value = `${errorInfo.message} (错误码: ${errorInfo.code})`;
+                message.error(backendErrorInfo.value);
+                router.push(`/error?e=${encodeURIComponent(backendErrorInfo.value)}&code=${errorInfo.code}`);
             }
         });
 }

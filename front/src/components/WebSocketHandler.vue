@@ -3,6 +3,7 @@ import { ref, inject, watch, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { message, notification } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
+import { ErrorCode, createErrorInfo } from '../utils/errorCodes';
 
 const { t } = useI18n();
 
@@ -239,61 +240,49 @@ onUnmounted(() => {
 function handleError(result: any) {
     if (result === 'jini') {
         javaAvailable.value = false;
+        const errorInfo = createErrorInfo(ErrorCode.JAVA_NOT_FOUND);
         notification.error({
-            message: t('home.java_error_title'),
-            description: t('home.java_error_desc'),
+            message: `${t('home.java_error_title')} (错误码: ${errorInfo.code})`,
+            description: `${t('home.java_error_desc')}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
             duration: 0
         });
     } else if (typeof result === 'string') {
-        let errorTitle = t('home.backend_error');
-        let errorDesc = t('home.backend_error_desc', { error: result });
-        let suggestions: string[] = [];
+        let errorInfo;
 
         if (result.includes('network') || result.includes('connection') || result.includes('timeout')) {
-            errorTitle = t('home.network_error_title');
-            errorDesc = t('home.network_error_desc', { error: result });
-            suggestions = [
-                t('home.suggestion_check_network'),
-                t('home.suggestion_check_firewall'),
-                t('home.suggestion_retry')
-            ];
+            errorInfo = createErrorInfo(ErrorCode.NETWORK_ERROR, result);
         } else if (result.includes('file') || result.includes('permission') || result.includes('disk')) {
-            errorTitle = t('home.file_error_title');
-            errorDesc = t('home.file_error_desc', { error: result });
-            suggestions = [
-                t('home.suggestion_check_disk_space'),
-                t('home.suggestion_check_permission'),
-                t('home.suggestion_check_file_format')
-            ];
+            if (result.includes('not found')) {
+                errorInfo = createErrorInfo(ErrorCode.FILE_NOT_FOUND, result);
+            } else if (result.includes('permission')) {
+                errorInfo = createErrorInfo(ErrorCode.FILE_PERMISSION_ERROR, result);
+            } else if (result.includes('format')) {
+                errorInfo = createErrorInfo(ErrorCode.FILE_FORMAT_ERROR, result);
+            } else {
+                errorInfo = createErrorInfo(ErrorCode.FILE_NOT_FOUND, result);
+            }
         } else if (result.includes('memory') || result.includes('out of memory') || result.includes('heap')) {
-            errorTitle = t('home.memory_error_title');
-            errorDesc = t('home.memory_error_desc', { error: result });
-            suggestions = [
-                t('home.suggestion_increase_memory'),
-                t('home.suggestion_close_other_apps'),
-                t('home.suggestion_restart_application')
-            ];
+            errorInfo = createErrorInfo(ErrorCode.MEMORY_INSUFFICIENT, result);
+        } else if (result.includes('disk') || result.includes('space')) {
+            errorInfo = createErrorInfo(ErrorCode.DISK_SPACE_INSUFFICIENT, result);
         } else {
-            suggestions = [
-                t('home.suggestion_check_backend'),
-                t('home.suggestion_check_logs'),
-                t('home.suggestion_contact_support')
-            ];
+            errorInfo = createErrorInfo(ErrorCode.UNKNOWN_ERROR, result);
         }
 
-        const fullDescription = `${errorDesc}\n\n${t('home.suggestions')}:\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
+        const fullDescription = `${errorInfo.message}: ${errorInfo.details}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
         notification.error({
-            message: errorTitle,
+            message: `${errorInfo.message} (错误码: ${errorInfo.code})`,
             description: fullDescription,
             duration: 0
         });
 
         resetState();
     } else {
+        const errorInfo = createErrorInfo(ErrorCode.UNKNOWN_ERROR);
         notification.error({
-            message: t('home.unknown_error_title'),
-            description: t('home.unknown_error_desc'),
+            message: `${t('home.unknown_error_title')} (错误码: ${errorInfo.code})`,
+            description: `${t('home.unknown_error_desc')}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
             duration: 0
         });
         resetState();

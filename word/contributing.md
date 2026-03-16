@@ -4,13 +4,15 @@
 
 感谢您对 DeEarthX-CE 项目的关注和支持！我们欢迎来自社区的贡献，包括代码提交、问题报告、功能建议等。本指南将帮助您了解如何参与项目开发。
 
+[XCCGit仓库](https://git.xcclyc.cn/xcclyc/DeEarthX-CE)
+
 ## 开发环境设置
 
 ### 前提条件
 
 在开始贡献之前，请确保您的系统满足以下要求：
 
-- **Node.js**：v16.0+（推荐使用最新稳定版）
+- **Node.js**：v22.0+（推荐使用最新稳定版）
 - **pnpm**：v8.0+（包管理器）
 - **Rust**：最新稳定版（用于 Tauri 构建）
 - **Git**：用于版本控制
@@ -18,7 +20,7 @@
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/DeEarthX-CE.git
+git clone https://git.xcclyc.cn/xcclyc/DeEarthX-CE.git
 cd DeEarthX-CE
 ```
 
@@ -35,7 +37,7 @@ pnpm install
 pnpm run dev
 
 # 启动后端开发服务器（如果需要）
-pnpm run backend:dev
+pnpm run test
 ```
 
 ## 代码规范
@@ -123,7 +125,7 @@ pnpm run test
 
 ## 问题报告
 
-如果您发现了 bug 或有功能建议，请在 GitHub Issues 页面提交：
+如果您发现了 bug 或有功能建议，请在 XCCGit Issues 页面提交：
 
 1. **搜索现有问题**：确保问题尚未被报告
 2. **创建新问题**：提供详细的问题描述
@@ -133,7 +135,9 @@ pnpm run test
 
 ## 功能请求
 
-如果您有新功能的想法，请在 GitHub Issues 页面提交功能请求：
+如果您有新功能的想法，请在 XCCGit Issues 页面提交功能请求：
+
+[XCCGit](https://git.xcclyc.cn/xcclyc/DeEarthX-CE/issues)
 
 1. **搜索现有请求**：确保功能尚未被请求
 2. **创建新请求**：提供详细的功能描述
@@ -179,7 +183,7 @@ MAJOR.MINOR.PATCH
 2. **更新 CHANGELOG**：记录版本变更内容
 3. **构建项目**：确保项目能够正常构建
 4. **运行测试**：确保所有测试通过
-5. **创建发布**：在 GitHub 上创建新的发布
+5. **创建发布**：在 XCCGit 上创建新的发布
 6. **部署**：部署到相关平台
 
 ## 行为准则
@@ -196,8 +200,8 @@ MAJOR.MINOR.PATCH
 
 如果您有任何问题或需要帮助，可以通过以下方式联系我们：
 
-- **GitHub Issues**：用于问题报告和功能请求
-- **Discord**：用于实时讨论和社区交流
+- **XCCGit Issues**：用于问题报告和功能请求
+- **QQ**：简单直接
 - **Email**：用于重要事项的沟通
 
 ## 致谢
