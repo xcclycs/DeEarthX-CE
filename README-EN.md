@@ -1,5 +1,7 @@
 # DeEarthX-CE
 
+[简体中文](README.md) | English
+
 ## Project Overview
 
 DeEarthX V3 is a Minecraft server-side modpack creation tool that helps you quickly convert client-side modpacks into runnable servers, while also providing template management capabilities.
