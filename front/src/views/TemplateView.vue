@@ -558,7 +558,9 @@ async function downloadAndInstallTemplate(template: StoreTemplate) {
                         // 关闭通知
                         message.destroy(notificationKey);
                         
-                        message.error(data.message || t('template.install_failed'));
+                        const errorMessage = data.message || t('template.install_failed');
+                        const errorDetails = data.details ? ` (${data.details})` : '';
+                        message.error(errorMessage + errorDetails);
                         // 重置状态
                         downloadLoading.value = false;
                         showDownloadProgress.value = false;

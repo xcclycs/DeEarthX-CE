@@ -550,7 +550,7 @@ export class ModCheckService {
         jarData = fs.readFileSync(file.filename);
       }
       
-      const { yauzl_promise } = await import("../utils/ziplib.js");
+      const { yauzl_promise } = await import("../utils/ziplib");
       const zipEntries = await yauzl_promise(jarData);
       
       for (const entry of zipEntries) {

@@ -38,7 +38,7 @@ export async function mlsetup(ml: string, mcv: string, mlv: string, path: string
         messageWS.serverInstallStep(`Applying Template: ${template}`, 1, totalSteps);
       }
       
-      const templateModule = await import('../template/index.js');
+      const templateModule = await import('../template/index');
       const TemplateManager = (templateModule as any).TemplateManager;
       const templateManager = new TemplateManager();
       const templates = await templateManager.getTemplates();

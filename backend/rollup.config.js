@@ -27,7 +27,8 @@ export default {
 			dedupe: ['tslib']
 		}),
 		commonjs({
-			transformMixedEsModules: true
+			transformMixedEsModules: true,
+			ignoreDynamicRequires: true
 		}),
 		json(),
 		terser({
