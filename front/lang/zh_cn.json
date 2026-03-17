@@ -1,6 +1,6 @@
 {
   "common": {
-    "app_name": "DeEarthX",
+    "app_name": "DeEarthX-CE ",
     "version": "版本",
     "status_loading": "启动中",
     "status_success": "正常",
@@ -42,7 +42,7 @@
     "step1_title": "解压整合包",
     "step1_desc": "解压内容并下载文件",
     "step2_title": "筛选模组",
-    "step2_desc": "DeEarthX 的核心功能",
+    "step2_desc": "DeEarthX-CE 的核心功能",
     "step3_title": "下载服务端",
     "step3_desc": "安装模组加载器服务端",
     "step4_title": "完成",
@@ -171,8 +171,8 @@
     "store_load_failed": "加载模板商店失败"
   },
   "setting": {
-    "title": "DeEarthX 设置",
-    "subtitle": "让 DeEarthX V3 更适合你！",
+    "title": "DeEarthX-CE 设置",
+    "subtitle": "让 DeEarthX-CE V3 更适合你！",
     "category_filter": "模组筛选设置",
     "category_mirror": "下载源设置",
     "category_system": "系统管理设置",
@@ -210,7 +210,7 @@
     "config_invalid_format": "配置文件格式无效"
   },
   "about": {
-    "title": "关于 DeEarthX",
+    "title": "关于 DeEarthX-CE",
     "subtitle": "专业的 Minecraft 整合包服务端制作工具",
     "about_software": "关于软件",
     "current_version": "当前版本：",

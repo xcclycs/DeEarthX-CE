@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { message } from 'ant-design-vue';
 import { PlusOutlined, DeleteOutlined, FolderOutlined, ExclamationCircleOutlined, EditOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons-vue';
 import { useI18n } from 'vue-i18n';
@@ -25,6 +25,8 @@ interface StoreTemplate {
     description: string;
     size: string;
     downloadUrls: string[];
+    version: string;
+    tag: string;
 }
 
 const templates = ref<Template[]>([]);
@@ -81,6 +83,29 @@ async function testDownloadSpeed(urls: string[]): Promise<string> {
 const storeTemplates = ref<StoreTemplate[]>([]);
 const storeLoading = ref(false);
 const activeTab = ref('local'); // 'local' 或 'store'
+const selectedTag = ref<string>('all'); // 'all', 'dex', 'CE'
+const searchKeyword = ref('');
+
+// 过滤后的模板
+const filteredStoreTemplates = computed(() => {
+    let filtered = storeTemplates.value;
+    
+    // 按标签筛选
+    if (selectedTag.value !== 'all') {
+        filtered = filtered.filter(template => template.tag === selectedTag.value);
+    }
+    
+    // 按关键词搜索
+    if (searchKeyword.value) {
+        const keyword = searchKeyword.value.toLowerCase();
+        filtered = filtered.filter(template => 
+            template.name.toLowerCase().includes(keyword) ||
+            template.description.toLowerCase().includes(keyword)
+        );
+    }
+    
+    return filtered;
+});
 
 const newTemplate = ref({
     name: '',
@@ -583,7 +608,7 @@ onMounted(() => {
                 <div class="tw:flex tw:justify-between tw:items-center tw:mb-6">
                     <div>
                         <h1 class="tw:text-2xl tw:font-bold tw:text-gray-800">{{ t('template.title') }}</h1>
-                        <p class="tw:text-gray-600 tw:mt-1">{{ t('template.description') }}</p>
+                        <p class="tw:text-gray-600 tw:mt-1">可选 | 模板是DeEarthX的一种扩展方式，用于快速生成服务端和增加稳定性</p>
                     </div>
                     <div class="tw:flex tw:gap-2">
                         <a-upload
@@ -672,7 +697,27 @@ onMounted(() => {
 
                 <!-- 模板商店 -->
                 <a-spin v-if="activeTab === 'store'" :spinning="storeLoading">
-                    <div v-if="storeTemplates.length === 0 && !storeLoading" class="tw:text-center tw:py-16 tw:text-gray-500">
+                    <!-- 搜索和筛选 -->
+                    <div v-if="storeTemplates.length > 0 && !storeLoading" class="tw:flex tw:flex-wrap tw:justify-between tw:items-center tw:mb-4">
+                        <div class="tw:flex tw:gap-2">
+                            <a-radio-group v-model:value="selectedTag" class="tw-mr-4">
+                                <a-radio-button value="all">全部</a-radio-button>
+                                <a-radio-button value="dex">官方</a-radio-button>
+                                <a-radio-button value="CE">社区</a-radio-button>
+                            </a-radio-group>
+                        </div>
+                        <a-input-search 
+                            v-model:value="searchKeyword"
+                            placeholder="搜索模板"
+                            style="width: 200px"
+                        />
+                    </div>
+                    
+                    <div>
+                        <p class="tw:text-xs tw:text-gray-400 tw:mt-1">社区提供的模板官方未经检测，请自行选择使用</p>
+                    </div>
+
+                    <div v-if="filteredStoreTemplates.length === 0 && !storeLoading" class="tw:text-center tw:py-16 tw:text-gray-500">
                         <DownloadOutlined style="font-size: 64px; margin-bottom: 16px;" />
                         <p class="tw:text-lg">{{ t('template.store_empty') }}</p>
                         <p class="tw:text-sm tw:mt-2">{{ t('template.store_empty_hint') }}</p>
@@ -680,16 +725,24 @@ onMounted(() => {
 
                     <div v-else class="tw:grid tw:grid-cols-1 md:tw:grid-cols-2 lg:tw:grid-cols-3 tw:gap-4">
                         <div 
-                            v-for="template in storeTemplates" 
+                            v-for="template in filteredStoreTemplates" 
                             :key="template.id"
                             class="tw:bg-white tw:rounded-lg tw:shadow-md tw:p-5 tw:h-48 tw:flex tw:flex-col tw:border tw:border-gray-200 tw:transition-all tw:duration-300 hover:tw:shadow-lg hover:tw:border-blue-300"
                         >
                             <div class="tw:flex-1 tw:overflow-hidden">
                                 <div class="tw:flex tw:justify-between tw:items-start tw:mb-2">
                                     <h3 class="tw:text-lg tw:font-semibold tw:truncate tw:flex-1 tw:mr-2">{{ template.name }}</h3>
-                                    <a-tag color="green" size="small">{{ template.size }}</a-tag>
+                                    <div class="tw:flex tw:gap-2">
+                                        <a-tag color="green" size="small">{{ template.size }}</a-tag>
+                                        <a-tag :color="template.tag === 'dex' ? 'blue' : 'orange'" size="small">
+                                            {{ template.tag === 'dex' ? '官方' : '社区' }}
+                                        </a-tag>
+                                    </div>
                                 </div>
                                 <p class="tw:text-sm tw:text-gray-600 tw:line-clamp-2 tw:mb-3">{{ template.description }}</p>
+                                <div class="tw:flex tw:justify-between tw:text-xs tw:text-gray-500">
+                                    <span>版本: {{ template.version }}</span>
+                                </div>
                             </div>
                             <div class="tw:flex tw:justify-end tw:mt-4 tw:pt-4 tw:border-t tw:border-gray-100">
                                 <a-button type="primary" size="small" @click="downloadAndInstallTemplate(template)">
