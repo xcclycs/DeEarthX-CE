@@ -716,7 +716,7 @@ export class Core {
                 const { default: got } = await import('got');
                 
                 // 从指定URL获取模板商店数据
-                const response = await got('http://dex.xcclyc.cn/template/template_stor.json');
+                const response = await got('http://git.xcclyc.cn/xcclyc/DeEarthX-CE-Tems/raw/branch/main/template_stor.json');
                 const data = JSON.parse(response.body);
                 
                 // 确保返回的数据结构符合前端预期

@@ -2,6 +2,14 @@
 
 ## 基本问题
 
+### 错误码
+
+错误码是DeEarthX-CE用于分辨的码
+
+错误码信息：[错误码](../api/error-codes.html)
+
+如果下面解决不了你的问题，你可以看看上面的错误码
+
 ### DeEarthX-CE 是什么？
 
 DeEarthX-CE 是一个功能强大的 Minecraft 模组管理工具，旨在简化模组的安装、更新和管理流程。它支持多个模组平台，提供智能的模组过滤功能，并允许用户创建和管理模组包模板。
@@ -94,4 +102,13 @@ DeEarthX-CE 支持 Windows 10/11、macOS 10.15+ 和 Linux (Ubuntu 20.04+) 操作
 
 - 查看应用日志获取详细错误信息
 - 访问 GitHub Issues 页面提交问题
-- 加入社区 Discord 服务器寻求帮助
+
+## 其它
+
+如果解决不了，请向QQ群反馈，你需要反馈（CE或者主版本群都可以）：
+```
+你好，我有XXX问题，错误码XXX
+我的安装路径是XXX
+环境是WindowsXXX，Java版本XXX
+程序是XXX版本（CE或者主版本）
+```
