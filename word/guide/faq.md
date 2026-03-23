@@ -29,7 +29,7 @@ DeEarthX-CE 支持 Windows 10/11、macOS 10.15+ 和 Linux (Ubuntu 20.04+) 操作
 - 检查是否满足系统要求
 - 尝试以管理员身份运行安装程序
 - 查看安装日志获取详细错误信息
-- 访问 GitHub Issues 页面寻求帮助
+- 访问 XCCGit Issues 页面寻求帮助
 
 ### 安装后无法启动应用怎么办？
 
@@ -92,7 +92,7 @@ DeEarthX-CE 支持 Windows 10/11、macOS 10.15+ 和 Linux (Ubuntu 20.04+) 操作
 ### 如何更新 DeEarthX-CE？
 
 - 自动更新：应用会定期检查更新并提示安装
-- 手动更新：访问 GitHub Releases 页面下载最新版本并安装
+- 手动更新：访问 XCCGit Releases 页面下载最新版本并安装
 
 ### 如何贡献代码？
 
@@ -101,7 +101,7 @@ DeEarthX-CE 支持 Windows 10/11、macOS 10.15+ 和 Linux (Ubuntu 20.04+) 操作
 ### 遇到其他问题怎么办？
 
 - 查看应用日志获取详细错误信息
-- 访问 GitHub Issues 页面提交问题
+- 访问 XCCGit Issues 页面提交问题
 
 ## 其它
 

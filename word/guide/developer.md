@@ -4,6 +4,8 @@
 
 本指南旨在帮助开发者理解 DeEarthX-CE 项目的架构和开发流程，以便能够顺利地为项目做出贡献。
 
+项目地址: [https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE.git](https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE.git)
+
 ## 项目架构
 
 DeEarthX-CE 采用前后端分离架构：
@@ -191,23 +193,14 @@ pnpm run test
 ### 构建应用
 
 ```bash
-# 构建前端
-cd front
+# 全自动构建
 pnpm run build
-
-# 构建后端
-cd ../backend
-pnpm run build
-
-# 构建桌面应用
-cd ..
-pnpm run tauri build
 ```
 
 ### 部署
 
 - **桌面应用**：分发构建后的安装包
-- **文档**：部署到 GitHub Pages 或其他静态网站托管服务
+- **文档**：部署到 XCCGit Pages 或其他静态网站托管服务
 
 ## 代码规范
 
@@ -271,7 +264,7 @@ pnpm run tauri build
 
 ## 贡献流程
 
-1. ** Fork 仓库**：在 GitHub 上 fork 项目仓库
+1. ** Fork 仓库**：在 XCCGit 上 fork 项目仓库
 2. **克隆仓库**：克隆 fork 后的仓库到本地
 3. **创建分支**：从 develop 分支创建新的功能分支
 4. **开发代码**：实现功能或修复 bug
@@ -300,6 +293,6 @@ pnpm run tauri build
 
 ## 联系方式
 
-- **GitHub Issues**：用于问题报告和功能请求
+- **XCCGit Issues**：用于问题报告和功能请求
 - **Discord**：用于实时讨论和社区交流
 - **Email**：用于重要事项的沟通

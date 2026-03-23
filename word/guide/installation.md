@@ -27,7 +27,7 @@
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/yourusername/DeEarthX-CE.git
+   git clone https://git.xcclyc.cn/xcclyc/DeEarthX-CE.git
    cd DeEarthX-CE
    ```
 
