@@ -41,7 +41,7 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'gitea', link: 'https://git.xcclyc.cn/xcclyc/DeEarthX-CE' }
+      { icon: 'gitea', link: 'https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE' }
     ]
   }
 })

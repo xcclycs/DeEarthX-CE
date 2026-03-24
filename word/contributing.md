@@ -4,7 +4,15 @@
 
 感谢您对 DeEarthX-CE 项目的关注和支持！我们欢迎来自社区的贡献，包括代码提交、问题报告、功能建议等。本指南将帮助您了解如何参与项目开发。
 
-[XCCGit仓库](https://git.xcclyc.cn/xcclyc/DeEarthX-CE)
+## 仓库地址
+
+- **主仓库**：[https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE](https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE)
+
+## 快速开始贡献
+
+嗷呜~如果你想要参与开发，就在 [https://git.xcclyc.com.cn](https://git.xcclyc.com.cn) 注册一个账号（一个邮箱就可以），然后派生一下，修改你派生的仓库，然后提交，然后向main创建合并请求就OK（有可能加入贡献列表哦~）
+
+## 详细贡献流程
 
 ## 开发环境设置
 
@@ -20,7 +28,7 @@
 ### 克隆仓库
 
 ```bash
-git clone https://git.xcclyc.cn/xcclyc/DeEarthX-CE.git
+git clone https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE.git
 cd DeEarthX-CE
 ```
 
@@ -137,7 +145,7 @@ pnpm run test
 
 如果您有新功能的想法，请在 XCCGit Issues 页面提交功能请求：
 
-[XCCGit](https://git.xcclyc.cn/xcclyc/DeEarthX-CE/issues)
+[XCCGit](https://git.xcclyc.com.cn/xcclyc/DeEarthX-CE/issues)
 
 1. **搜索现有请求**：确保功能尚未被请求
 2. **创建新请求**：提供详细的功能描述
@@ -203,6 +211,30 @@ MAJOR.MINOR.PATCH
 - **XCCGit Issues**：用于问题报告和功能请求
 - **QQ**：简单直接
 - **Email**：用于重要事项的沟通
+
+## 贡献者列表维护
+
+### 如何加入贡献者列表
+
+当您的 Pull Request 被合并到主分支后，您将自动被添加到项目的贡献者列表中。我们会定期更新贡献者名单，以表彰所有为项目做出贡献的开发者。
+
+### 贡献认可机制
+
+我们重视每一位贡献者的努力，通过以下方式认可您的贡献：
+
+1. **贡献者列表**：在项目文档和源码中列出所有贡献者
+2. **版本发布说明**：在版本发布时特别感谢新的贡献者
+3. **社区表彰**：在社区渠道中宣传和表彰重要贡献
+4. **贡献徽章**：为活跃贡献者提供贡献徽章
+
+### 贡献类型
+
+我们欢迎各种类型的贡献，包括但不限于：
+
+- **代码贡献**：修复 bug、添加新功能、优化性能
+- **文档贡献**：更新文档、添加示例、改进说明
+- **测试贡献**：编写测试用例、报告 bug、提供反馈
+- **社区贡献**：回答问题、帮助其他用户、分享使用经验
 
 ## 致谢
 
