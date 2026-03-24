@@ -295,7 +295,7 @@ const theme = ref({
                 <a-menu
                     id="menu"
                     class="tw:shadow-lg tw:z-20"
-                    style="width: 180px; flex-shrink: 0;"
+                    style="width: 220px; flex-shrink: 0;"
                     :selectedKeys="selectedKeys"
                     mode="inline"
                     :items="menuItems"
@@ -369,10 +369,31 @@ img {
     }
 }
 
-/* 菜单项悬停效果优化 */
+/* 菜单项美化 */
 #menu .ant-menu-item {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     border-radius: 8px;
+    margin: 8px 3px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 550;
+    position: relative;
+    overflow: hidden;
+}
+
+#menu .ant-menu-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    background: linear-gradient(180deg, #67eac3 0%, #10b981 100%);
+    border-radius: 0 4px 4px 0;
+    transform: scaleY(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #menu .ant-menu-item:hover {
@@ -382,11 +403,28 @@ img {
 
 #menu .ant-menu-item-selected {
     background: linear-gradient(135deg, #d1fae5 0%, #e8fff5 100%);
-    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.2);
+}
+
+#menu .ant-menu-item-selected::before {
+    transform: scaleY(1);
 }
 
 #menu .ant-menu-item-selected .anticon {
     color: #10b981;
+    transform: scale(1.1);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#menu .anticon {
+    font-size: 16px;
+    margin-right: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#menu .ant-menu-item:hover .anticon {
+    color: #10b981;
+    transform: scale(1.1) rotate(5deg);
 }
 
 /* 滚动条美化 */
