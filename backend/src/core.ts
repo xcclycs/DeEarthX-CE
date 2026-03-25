@@ -204,7 +204,7 @@ export class Core {
                     return res.status(400).json({ status: 400, message: "缺少 path 参数" });
                 }
 
-                const { ModCheckService } = await import('./dearth/index');
+                const { ModCheckService } = await import('./dearth/index.js');
                 const checkService = new ModCheckService(modsPath);
                 const results = await checkService.checkMods();
 
@@ -238,7 +238,7 @@ export class Core {
                     bundleName: bundleName.trim() 
                 });
 
-                const { ModCheckService } = await import('./dearth/index');
+                const { ModCheckService } = await import('./dearth/index.js');
                 const checkService = new ModCheckService(folderPath);
                 const results = await checkService.checkModsWithBundle(bundleName.trim());
 
@@ -295,7 +295,7 @@ export class Core {
         // 获取模板列表
         this.app.get('/templates', async (req, res) => {
             try {
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 const templates = await templateManager.getTemplates();
@@ -321,7 +321,7 @@ export class Core {
                     return;
                 }
 
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
@@ -353,7 +353,7 @@ export class Core {
             try {
                 const { id } = req.params;
                 
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateService = (templateModule as any).TemplateService;
                 const templateService = new TemplateService();
                 
@@ -385,7 +385,7 @@ export class Core {
                     return;
                 }
 
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
@@ -414,7 +414,7 @@ export class Core {
                 const { id } = req.params;
                 const path = await import('path');
                 const { exec } = await import('child_process');
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 
                 const templateManager = new TemplateManager();
@@ -449,7 +449,7 @@ export class Core {
         this.app.get('/templates/:id/export', async (req, res) => {
             try {
                 const { id } = req.params;
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
@@ -491,7 +491,7 @@ export class Core {
                     return res.status(400).json({ status: 400, message: "只支持 .zip 文件" });
                 }
                 
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
@@ -631,7 +631,7 @@ export class Core {
                 unlinkSync(tempFilePath);
                 
                 // 导入模板
-                const templateModule = await import('./template/index');
+                const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 

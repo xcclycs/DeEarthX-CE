@@ -53,7 +53,7 @@ const settings = computed<SettingCategory[]>(() => {
     {
       id: 'filter',
       title: t('setting.category_filter'),
-      icon: '🧩',
+      icon: '',
       bgColor: 'bg-emerald-100',
       textColor: 'text-emerald-800',
       items: [
@@ -90,7 +90,7 @@ const settings = computed<SettingCategory[]>(() => {
     {
       id: 'mirror',
       title: t('setting.category_mirror'),
-      icon: '⬇️',
+      icon: '',
       bgColor: 'bg-cyan-100',
       textColor: 'text-cyan-800',
       items: [
@@ -113,7 +113,7 @@ const settings = computed<SettingCategory[]>(() => {
     {
       id: 'system',
       title: t('setting.category_system'),
-      icon: '🛠️',
+      icon: '',
       bgColor: 'bg-purple-100',
       textColor: 'text-purple-800',
       hasLanguage: true,
@@ -257,7 +257,7 @@ watch(config, (newValue) => {
           >
             <div class="tw:flex-1">
               <p class="tw:text-gray-700 tw:font-semibold tw:text-sm tw:group-hover/item:tw:text-emerald-700 tw:transition-colors tw:flex tw:items-center tw:gap-2">
-                <span>🌐</span> {{ t('setting.language_title') }}
+                {{ t('setting.language_title') }}
               </p>
               <p class="tw:text-xs tw:text-gray-500 tw:mt-2">{{ t('setting.language_desc') }}</p>
               <div class="tw-mt-3">
