@@ -721,7 +721,11 @@ export class Core {
                 const { default: got } = await import('got');
                 
                 // 从指定URL获取模板商店数据
-                const response = await got('http://git.xcclyc.cn/xcclyc/DeEarthX-CE-Tems/raw/branch/main/template_stor.json');
+                const response = await got('http://git.xcclyc.com.cn/xcclyc/DeEarthX-CE-Tems/raw/branch/main/template_stor.json', {
+                    timeout: {
+                        request: 10000 // 10秒超时
+                    }
+                });
                 const data = JSON.parse(response.body);
                 
                 // 确保返回的数据结构符合前端预期
@@ -739,7 +743,11 @@ export class Core {
             } catch (err) {
                 const error = err as Error;
                 logger.error("/templates/store 路由错误", error);
-                res.status(500).json({ status: 500, message: "获取模板商店数据失败" });
+                // 即使获取失败，也返回空的模板列表，确保前端能正常加载
+                res.json({
+                    status: 200,
+                    data: { templates: [] }
+                });
             }
         });
     }
