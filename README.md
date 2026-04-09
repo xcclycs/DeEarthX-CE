@@ -2,6 +2,8 @@
 
 [English](README-EN.md) | 简体中文
 
+lyc2ee也是作者的账号
+
 ## 项目概述
 
 DeEarthX V3 是一个 Minecraft 整合包服务端制作工具，帮你快速把客户端整合包转换成可运行的服务端，同时提供模板管理功能。
