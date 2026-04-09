@@ -50,7 +50,8 @@
       "nsis": {
         "languages": ["SimpChinese","English"],
         "displayLanguageSelector": true,
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "author": "xcclyc"
       },
       "wix": {
         "language": "zh-CN"
