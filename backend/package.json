@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "license": "MIT",
-  "author": "Tianpao",
+  "author": "xcclyc",
   "type": "module",
   "main": "dist/bundle.js",
   "bin": "dist/bundle.js",

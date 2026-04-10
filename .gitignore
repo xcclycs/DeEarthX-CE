@@ -33,3 +33,4 @@ instance
 *.mrpack
 templates/
 package-lock.json
+.trae/
