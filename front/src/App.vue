@@ -94,7 +94,20 @@ async function runCoreProcess() {
     // 端口空闲，尝试启动后端
     backendStatus.value = 'loading';
     
-    Command.create("core").spawn()
+    // 构建后端可执行文件路径
+    let corePath = "core";
+    
+    // 在生产环境中，后端可执行文件应该在binaries目录中
+    try {
+        const { appDataDir } = await import('@tauri-apps/api/path');
+        await appDataDir();
+        // 简化处理，直接使用相对路径
+        corePath = "core";
+    } catch (error) {
+        console.log('使用默认core路径:', error);
+    }
+    
+    Command.create(corePath).spawn()
         .then((e) => {
             console.log("DeEarthX V3 Core");
             killCoreProcess = e.kill;

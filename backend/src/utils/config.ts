@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { logger } from './logger.js';
 
 /**
@@ -45,8 +46,8 @@ const DEFAULT_CONFIG: IConfig = {
 };
 
 /**
- * 获取可执行文件所在目录
- * 在开发环境返回当前目录,在生产环境返回可执行文件所在目录
+ * 获取应用数据目录
+ * 在开发环境返回当前目录,在生产环境返回用户数据目录
  */
 function getAppDir(): string {
   const execPath = process.execPath;
@@ -62,11 +63,25 @@ function getAppDir(): string {
     return cwd;
   }
   
-  return path.dirname(execPath);
+  // 在生产环境中使用用户数据目录，避免C盘权限问题
+  const appDataDir = path.join(os.homedir(), 'AppData', 'Roaming', 'DeEarthX');
+  
+  // 确保目录存在
+  if (!fs.existsSync(appDataDir)) {
+    try {
+      fs.mkdirSync(appDataDir, { recursive: true });
+    } catch (error) {
+      logger.error('Failed to create app data directory', error as Error);
+      // 如果创建失败，回退到可执行文件所在目录
+      return path.dirname(execPath);
+    }
+  }
+  
+  return appDataDir;
 }
 
 /**
- * 配置文件路径 - 使用可执行文件所在目录
+ * 配置文件路径 - 使用应用数据目录
  */
 const CONFIG_PATH = path.join(getAppDir(), "config.json");
 

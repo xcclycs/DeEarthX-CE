@@ -6,7 +6,7 @@
                 <path d="M40,40 L80,80 M80,40 L40,80" stroke="white" stroke-width="10" stroke-linecap="round" class="tw:opacity-90" />
             </svg>
         </div>
-        <h1 class="tw:text-3xl tw:font-bold tw:text-center tw:mb-6 tw:text-red-500">错误提示</h1>
+        <h1 class="tw:text-3xl tw:font-bold tw:text-center tw:mb-6 tw:text-red-500">错误</h1>
         <div class="tw:w-1/2 tw:max-w-md tw:bg-white tw:p-8 tw:rounded-xl tw:shadow-xl tw:border tw:border-gray-100 tw:transition-all tw:duration-300 tw:hover:shadow-2xl">
             <div class="tw:text-center tw:mb-6">
                 <p class="tw:text-lg tw:font-medium tw:text-gray-700 mb-2">
@@ -21,30 +21,20 @@
                 <ul class="tw:text-sm tw:text-gray-600">
                     <li v-for="(suggestion, index) in suggestions" :key="index" class="tw:mb-2 tw:flex tw:items-start">
                         <span class="tw:w-5 tw:h-5 tw:flex tw:items-center tw:justify-center tw:bg-red-100 tw:text-red-500 tw:rounded-full tw:mr-3 tw:mt-0.5">
-                            {{ index + 1 }}
+                            {{ Number(index) + 1 }}
                         </span>
                         <span>{{ suggestion }}</span>
                     </li>
                 </ul>
             </div>
-            <div class="tw:mt-8 tw:flex tw:justify-center tw:gap-4">
+            <div class="tw:mt-8 tw:flex tw:justify-center">
                 <button 
                     class="tw:px-6 tw:py-2.5 tw:bg-[#67eac3] tw:text-gray-800 tw:rounded-lg tw:hover:bg-[#56d9b0] tw:transition-all tw:duration-300 tw:font-medium tw:shadow-sm tw:hover:shadow"
                     @click="goBack"
                 >
                     返回首页
                 </button>
-                <button 
-                    v-if="errorCode"
-                    class="tw:px-6 tw:py-2.5 tw:bg-white tw:text-[#67eac3] tw:rounded-lg tw:hover:bg-gray-50 tw:transition-all tw:duration-300 tw:font-medium tw:shadow-sm tw:hover:shadow tw:border tw:border-[#67eac3]"
-                    @click="openErrorDoc"
-                >
-                    文档帮助
-                </button>
             </div>
-        </div>
-        <div class="tw:mt-8 tw:text-xs tw:text-gray-400">
-            DeEarthX Core © {{ new Date().getFullYear() }}
         </div>
     </div>
 </template>
@@ -52,7 +42,6 @@
 <script lang="ts" setup>
 import { useRoute, useRouter } from 'vue-router';
 import { ErrorCode, getErrorSuggestions } from '../utils/errorCodes';
-import { open } from '@tauri-apps/plugin-shell';
 
 const route = useRoute();
 const router = useRouter();
@@ -64,12 +53,5 @@ const suggestions = errorCode ? getErrorSuggestions(errorCode) : [];
 
 function goBack() {
     router.push('/');
-}
-
-function openErrorDoc() {
-    if (errorCode) {
-        const url = `https://dex.xcclyc.cn/api/error-codes.html#_${errorCode}`;
-        open(url);
-    }
 }
 </script>

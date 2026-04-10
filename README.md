@@ -2,7 +2,38 @@
 
 [English](README-EN.md) | 简体中文
 
-lyc2ee也是作者的账号
+<div align="center">
+
+# <image src="front/public/dex.png" height="28" width="28"/> DeEarthX
+
+[![Github release](https://img.shields.io/github/v/tag/xcclycs/DeEarthX-CE)](https://github.com/xcclycs/DeEarthX-CE/releases)
+[![GitHub](https://img.shields.io/github/license/xcclycs/DeEarthX-CE)](https://github.com/xcclycs/DeEarthX-CE/blob/main/LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/xcclycs/DeEarthX-CE)](https://github.com/xcclycs/DeEarthX-CE/commits/main)
+[![GitHub issues](https://img.shields.io/github/issues/xcclycs/DeEarthX-CE)](https://github.com/xcclycs/DeEarthX-CE/issues)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/xcclycs/DeEarthX-CE)](https://github.com/xcclycs/DeEarthX-CE/pulls)
+
+<div style="display: flex; justify-content: center; align-items: center; gap: 10px;">
+
+<a href="https://qm.qq.com/q/7WI7AIL0Vq"><image align="center" src="front/public/QQ.png" height="15" width="15"/> 加入Q群</a>
+
+<a href="https://www.bilibili.com/video/BV1xXwRzpEMh/?share_source=copy_web&vd_source=61adb0d8dd140ac9c2acc3b52e2999a2"> <image align="center" src="front/public/bilibili.svg" height="15" width="15"/> 宣传片</a>
+
+</div>
+
+</div>
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=xcclycs%2FDeEarthX-CE&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=xcclycs/DeEarthX-CE&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=xcclycs/DeEarthX-CE&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=xcclycs/DeEarthX-CE&type=date&legend=top-left" />
+ </picture>
+</a>
+
+> [!WARNING]
+> 模组可能过滤不干净，且制作的服务端禁止用于售卖！
 
 ## 项目概述
 
@@ -12,7 +43,7 @@ QQ群：1090666196
 
 ## 文档地址
 
-文档地址：[https://dex.xcclyc.cn/](https://dex.xcclyc.cn/)
+文档地址：[https://dex.xcclyc.com.cn/](https://dex.xcclyc.com.cn/)
 
 ## 核心功能
 
