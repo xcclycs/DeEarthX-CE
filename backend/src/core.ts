@@ -8,6 +8,8 @@ import { Dex } from "./Dex.js";
 import { logger } from "./utils/logger.js";
 import { checkJava, JavaCheckResult, detectJavaPaths } from "./utils/utils.js";
 import { Galaxy } from "./galaxy.js";
+import { GuardianController } from "./guardian/index.js";
+import type { IGuardianConfig } from "./guardian/types.js";
 import fs from "node:fs";
 
 export class Core {
@@ -19,6 +21,7 @@ export class Core {
     private readonly upload: multer.Multer;
     dex: Dex;
     galaxy: Galaxy;
+    guardian!: GuardianController;
     
     constructor(config: IConfig) {
         this.config = config
@@ -27,9 +30,11 @@ export class Core {
         this.ws = new WebSocketServer({ server: this.server })
         this.ws.on("connection",(e)=>{
             this.wsx = e
+            this.setupGuardianWSHandler(e);
         })
         this.dex = new Dex(this.ws)
         this.galaxy = new Galaxy()
+        this.initGuardian();
         const storage = multer.memoryStorage();
         this.upload = multer({ 
             storage: storage,
@@ -86,6 +91,7 @@ export class Core {
         this.setupGalaxyRoutes();
         this.setupJavaRoutes();
         this.setupTemplateRoutes();
+        this.setupGuardianRoutes();
     }
 
     private setupMiddleware() {
@@ -751,6 +757,218 @@ export class Core {
             }
         });
     }
+
+    // ==================== Guardian (ServerGuardian) ====================
+
+    /**
+     * 初始化 Guardian 模块
+     */
+    private initGuardian(): void {
+        const guardianConfig: IGuardianConfig = {
+            enabled: this.config.guardian?.enabled ?? false,
+            ai: {
+                provider: this.config.guardian?.ai?.provider ?? 'openai',
+                apiKey: this.config.guardian?.ai?.apiKey ?? '',
+                model: this.config.guardian?.ai?.model ?? 'gpt-4.1-mini',
+                baseURL: this.config.guardian?.ai?.baseURL ?? 'https://api.openai.com/v1',
+                maxTokens: this.config.guardian?.ai?.maxTokens || 1500
+            },
+            autoAcceptLowRisk: this.config.guardian?.autoAcceptLowRisk ?? true,
+            maxConsecutiveCrashes: this.config.guardian?.maxConsecutiveCrashes ?? 5,
+            monitoringTimeout: this.config.guardian?.monitoringTimeout ?? 30000,
+            maxLogContextLines: 200,
+            workDir: '',
+            javaCommand: '',
+            serverType: 'unknown',
+            automationLevel: 'strict'
+        };
+
+        this.guardian = new GuardianController(guardianConfig, {
+            onStatusChange: (status, data) => {
+                this.sendGuardianEvent('guardian_status', { status, data });
+            },
+            onLogLine: (line, isError) => {
+                this.sendGuardianEvent('guardian_log', { line, isError });
+            },
+            onCrashDetected: (crashInfo) => {
+                this.sendGuardianEvent('guardian_crash_detected', crashInfo);
+            },
+            onAIAnalysis: (diagnosis) => {
+                this.sendGuardianEvent('guardian_ai_analysis', diagnosis);
+                // 同步推送最新的 AI 对话记录
+                if (this.guardian) {
+                    this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
+                }
+            },
+            onActionsRequired: (actions) => {
+                this.sendGuardianEvent('guardian_actions_required', actions);
+            },
+            onActionExecuted: (result) => {
+                this.sendGuardianEvent('guardian_action_executed', result);
+            },
+            onGiveUp: (reason) => {
+                this.sendGuardianEvent('guardian_give_up', { reason });
+                logger.warn(`ServerGuardian 放弃: ${reason}`);
+            },
+            onReport: (report) => {
+                this.sendGuardianEvent('guardian_report', report);
+            },
+            onAIConversation: (conversations) => {
+                this.sendGuardianEvent('guardian_ai_conversation', conversations);
+            }
+        });
+
+        logger.info('ServerGuardian 模块已初始化');
+    }
+
+    /**
+     * 发送 Guardian WebSocket 事件
+     */
+    private sendGuardianEvent(type: string, data: any): void {
+        try {
+            if (this.wsx && this.wsx.readyState === websocket.OPEN) {
+                this.wsx.send(JSON.stringify({ type, data }));
+            }
+        } catch (err) {
+            logger.error('发送 Guardian 事件失败', err as Error);
+        }
+    }
+
+    /**
+     * 设置 Guardian WebSocket 消息处理器
+     */
+    private setupGuardianWSHandler(ws: websocket): void {
+        if (!this.guardian) return;
+
+        ws.on('message', (raw) => {
+            try {
+                const msg = JSON.parse(raw.toString());
+                if (!msg.type || !msg.type.startsWith('guardian_')) return;
+
+                switch (msg.type) {
+                    case 'guardian_start':
+                        if (this.guardian) {
+                            const { workDir, javaCommand, serverType } = msg.data || {};
+                            if (workDir) {
+                                this.guardian.updateConfig({
+                                    workDir,
+                                    javaCommand: javaCommand || '',
+                                    serverType: serverType || 'unknown'
+                                });
+                            }
+                            this.guardian.start();
+                        }
+                        break;
+
+                    case 'guardian_stop':
+                        this.guardian?.stop();
+                        break;
+
+                    case 'guardian_test_ai':
+                        if (this.guardian) {
+                            this.guardian.testAI().then(result => {
+                                this.sendGuardianEvent('guardian_test_ai_result', result);
+                            }).catch((err: Error) => {
+                                this.sendGuardianEvent('guardian_test_ai_result', {
+                                    success: false,
+                                    message: `AI 测试内部错误: ${err.message}`
+                                });
+                            });
+                        } else {
+                            this.sendGuardianEvent('guardian_test_ai_result', {
+                                success: false,
+                                message: 'Guardian 模块未初始化，请检查配置后重试'
+                            });
+                        }
+                        break;
+
+                    case 'guardian_approve':
+                        this.guardian?.approveActions(msg.data?.actionIds || []);
+                        break;
+
+                    case 'guardian_reject':
+                        this.guardian?.rejectActions(msg.data?.actionIds || []);
+                        break;
+
+                    case 'guardian_rollback':
+                        this.guardian?.rollbackLastFix();
+                        break;
+
+                    case 'guardian_command':
+                        this.guardian?.sendCommand(msg.data?.command || '');
+                        break;
+
+                    case 'guardian_get_ai_conversation':
+                        if (this.guardian) {
+                            this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
+                        }
+                        break;
+
+                    case 'guardian_reset_ai_conversation':
+                        if (this.guardian) {
+                            this.guardian.resetAIConversations();
+                            this.sendGuardianEvent('guardian_ai_conversation', []);
+                        }
+                        break;
+
+                    case 'guardian_update_config':
+                        this.guardian?.updateConfig(msg.data || {});
+                        // 同时更新全局配置
+                        if (msg.data?.ai) {
+                            const current = Config.getConfig();
+                            current.guardian = {
+                                ...current.guardian!,
+                                ai: { ...current.guardian!.ai, ...msg.data.ai }
+                            };
+                            Config.writeConfig(current);
+                            Config.clearCache();
+                        }
+                        break;
+                }
+            } catch (err) {
+                logger.error('处理 Guardian WebSocket 消息失败', err as Error);
+            }
+        });
+    }
+
+    /**
+     * Guardian REST API 路由
+     */
+    private setupGuardianRoutes(): void {
+        // 获取 Guardian 状态
+        this.app.get('/guardian/status', (req, res) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
+            }
+            res.json({
+                status: 200,
+                enabled: true,
+                guardianStatus: this.guardian.getStatus(),
+                processInfo: this.guardian.getProcessInfo(),
+                checkpoints: this.guardian.getCheckpoints(),
+                reports: this.guardian.getReportsList()
+            });
+        });
+
+        // 获取日志缓冲区
+        this.app.get('/guardian/logs', (req, res) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, logs: [] });
+            }
+            const lines = parseInt(req.query.lines as string) || 100;
+            const buffer = this.guardian.getLogBuffer();
+            res.json({ status: 200, logs: buffer.slice(-lines) });
+        });
+
+        // 获取报告列表
+        this.app.get('/guardian/reports', (req, res) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, reports: [] });
+            }
+            res.json({ status: 200, reports: this.guardian.getReportsList() });
+        });
+    }
+
     public async start() {
         
         this.setupExpressRoutes();

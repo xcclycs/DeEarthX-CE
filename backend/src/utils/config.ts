@@ -22,6 +22,19 @@ export interface IConfig {
   port?: number;
   host?: string;
   javaPath?: string;
+  guardian?: {
+    enabled: boolean;
+    ai: {
+      provider: 'openai' | 'ollama' | 'none';
+      apiKey: string;
+      model: string;
+      baseURL: string;
+      maxTokens?: number;
+    };
+    autoAcceptLowRisk: boolean;
+    maxConsecutiveCrashes: number;
+    monitoringTimeout: number;
+  };
 }
 
 /**
@@ -42,7 +55,20 @@ const DEFAULT_CONFIG: IConfig = {
   autoZip: false,
   port: 37019,
   host: 'localhost',
-  javaPath: undefined
+  javaPath: undefined,
+  guardian: {
+    enabled: false,
+    ai: {
+      provider: 'openai' as const,
+      apiKey: '',
+      model: 'gpt-4.1-mini',
+      baseURL: 'https://api.openai.com/v1',
+      maxTokens: 1500
+    },
+    autoAcceptLowRisk: true,
+    maxConsecutiveCrashes: 5,
+    monitoringTimeout: 30000
+  }
 };
 
 /**
@@ -153,7 +179,21 @@ export class Config {
       oaf: getEnv('DEEARTHX_OAF', config.oaf),
       autoZip: getEnv('DEEARTHX_AUTO_ZIP', config.autoZip),
       port: getEnv('DEEARTHX_PORT', config.port || DEFAULT_CONFIG.port),
-      host: getEnv('DEEARTHX_HOST', config.host || DEFAULT_CONFIG.host)
+      host: getEnv('DEEARTHX_HOST', config.host || DEFAULT_CONFIG.host),
+      javaPath: getEnv('DEEARTHX_JAVA_PATH', config.javaPath),
+      guardian: {
+        enabled: getEnv('DEEARTHX_GUARDIAN_ENABLED', config.guardian?.enabled ?? DEFAULT_CONFIG.guardian!.enabled),
+        ai: {
+          provider: getEnv('DEEARTHX_GUARDIAN_AI_PROVIDER', config.guardian?.ai?.provider ?? DEFAULT_CONFIG.guardian!.ai.provider) as any,
+          apiKey: getEnv('DEEARTHX_GUARDIAN_API_KEY', config.guardian?.ai?.apiKey ?? ''),
+          model: getEnv('DEEARTHX_GUARDIAN_AI_MODEL', config.guardian?.ai?.model ?? DEFAULT_CONFIG.guardian!.ai.model),
+          baseURL: getEnv('DEEARTHX_GUARDIAN_AI_BASE_URL', config.guardian?.ai?.baseURL ?? DEFAULT_CONFIG.guardian!.ai.baseURL),
+          maxTokens: getEnv('DEEARTHX_GUARDIAN_AI_MAX_TOKENS', config.guardian?.ai?.maxTokens ?? DEFAULT_CONFIG.guardian!.ai.maxTokens)
+        },
+        autoAcceptLowRisk: getEnv('DEEARTHX_GUARDIAN_AUTO_ACCEPT', config.guardian?.autoAcceptLowRisk ?? DEFAULT_CONFIG.guardian!.autoAcceptLowRisk),
+        maxConsecutiveCrashes: getEnv('DEEARTHX_GUARDIAN_MAX_CRASHES', config.guardian?.maxConsecutiveCrashes ?? DEFAULT_CONFIG.guardian!.maxConsecutiveCrashes),
+        monitoringTimeout: getEnv('DEEARTHX_GUARDIAN_TIMEOUT', config.guardian?.monitoringTimeout ?? DEFAULT_CONFIG.guardian!.monitoringTimeout)
+      }
     };
     
     this.cachedConfig = envConfig;

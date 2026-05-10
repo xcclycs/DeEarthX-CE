@@ -206,4 +206,69 @@ export class MessageWS {
       logger.error("Failed to send WebSocket message", err);
     }
   }
+
+  // ==================== Guardian WebSocket Events ====================
+
+  /**
+   * 发送 Guardian 状态变更
+   */
+  guardianStatus(status: string, data?: any) {
+    this.send("guardian_status", { status, data });
+  }
+
+  /**
+   * 发送 Guardian 实时日志行
+   */
+  guardianLog(line: string, isError: boolean) {
+    this.send("guardian_log", { line, isError });
+  }
+
+  /**
+   * 发送崩溃检测通知
+   */
+  guardianCrashDetected(crashInfo: any) {
+    this.send("guardian_crash_detected", crashInfo);
+  }
+
+  /**
+   * 发送 AI 分析结果（流式）
+   */
+  guardianAIAnalysis(diagnosis: any) {
+    this.send("guardian_ai_analysis", diagnosis);
+  }
+
+  /**
+   * 发送待确认操作列表
+   */
+  guardianActionsRequired(actions: any[]) {
+    this.send("guardian_actions_required", actions);
+  }
+
+  /**
+   * 发送操作执行结果
+   */
+  guardianActionExecuted(result: any) {
+    this.send("guardian_action_executed", result);
+  }
+
+  /**
+   * 发送放弃通知
+   */
+  guardianGiveUp(reason: string) {
+    this.send("guardian_give_up", { reason });
+  }
+
+  /**
+   * 发送回滚结果
+   */
+  guardianRollback(result: any) {
+    this.send("guardian_rollback", result);
+  }
+
+  /**
+   * 发送重启通知
+   */
+  guardianRestart(data: any) {
+    this.send("guardian_restart", data);
+  }
 }

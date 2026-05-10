@@ -33,6 +33,10 @@ const router = createRouter({
         {
             path: "/template",
             component: () => import("../views/TemplateView.vue")
+        },
+        {
+            path: "/guardian",
+            component: () => import("../views/GuardianView.vue")
         }
     ]
 })
