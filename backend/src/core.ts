@@ -815,6 +815,9 @@ export class Core {
             },
             onAIConversation: (conversations) => {
                 this.sendGuardianEvent('guardian_ai_conversation', conversations);
+            },
+            onMetrics: (metrics) => {
+                this.sendGuardianEvent('guardian_metrics', metrics);
             }
         });
 
@@ -892,6 +895,10 @@ export class Core {
 
                     case 'guardian_rollback':
                         this.guardian?.rollbackLastFix();
+                        break;
+
+                    case 'guardian_restart':
+                        this.guardian?.confirmRestart();
                         break;
 
                     case 'guardian_command':

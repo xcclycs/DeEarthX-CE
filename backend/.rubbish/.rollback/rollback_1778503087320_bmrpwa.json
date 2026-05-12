@@ -1,0 +1,38 @@
+{
+  "id": "rollback_1778503087320_bmrpwa",
+  "timestamp": "2026-05-11T12:38:07.320Z",
+  "crashId": "ai-exit-1778503040803",
+  "reverted": false,
+  "snapshots": [
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\Tweakerge-0.1.5-mc1.20.1.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778503087320_bmrpwa_Tweakerge-0.1.5-mc1.20.1.jar",
+      "type": "remove_mod",
+      "description": "该模组尝试加载客户端专用类导致崩溃"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\MaFgLib-0.1.14-mc1.20.1.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778503087320_bmrpwa_MaFgLib-0.1.14-mc1.20.1.jar",
+      "type": "remove_mod",
+      "description": "该模组尝试加载客户端专用类导致崩溃"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\oculus-mc1.20.1-1.8.0.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778503087320_bmrpwa_oculus-mc1.20.1-1.8.0.jar",
+      "type": "remove_mod",
+      "description": "该模组尝试加载客户端专用类导致崩溃"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\chunksfadein-forge-3.0.20-1.20.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778503087320_bmrpwa_chunksfadein-forge-3.0.20-1.20.jar",
+      "type": "remove_mod",
+      "description": "该模组尝试加载客户端专用类导致崩溃"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\IMBlocker-5.4.6.1-forge+1.17-1.20.4.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778503087320_bmrpwa_IMBlocker-5.4.6.1-forge+1.17-1.20.4.jar",
+      "type": "remove_mod",
+      "description": "该模组初始化时抛出异常导致崩溃"
+    }
+  ]
+}

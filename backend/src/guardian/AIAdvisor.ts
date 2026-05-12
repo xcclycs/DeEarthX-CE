@@ -4,6 +4,25 @@
  */
 
 import { AIDiagnosis, RepairAction, IGuardianConfig, CrashInfo, CrashClassification, AIConversationEntry } from './types.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { logger } from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+function fillTemplate(template: string, vars: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{${key}}`, value);
+  }
+  return result;
+}
+
+const PROMPT_DIR = path.join(__dirname, 'prompts');
+const CHECK_COMPLETION_PROMPT = fs.readFileSync(path.join(PROMPT_DIR, 'check-completion-prompt.md'), 'utf-8');
+const DIAGNOSIS_PROMPT = fs.readFileSync(path.join(PROMPT_DIR, 'diagnosis-prompt.md'), 'utf-8');
 
 /** AI 配置 */
 export interface AIConfig {
@@ -45,27 +64,12 @@ export class AIAdvisor {
       };
     }
 
-    const prompt = `你是一个严格的 Minecraft 服务端运行情况分析专家。服务端进程已退出（退出码: 0）。
-
-服务端退出码为 0 不等于运行正常！请仔细检查日志的最后部分，确认服务端是否真的正常完成。
-
-【最近日志片段（最后部分，行号为倒序编号）】
-${(() => {
-  const lines = logContext.split('\n');
-  const lastLines = lines.slice(-60);
-  return lastLines.map((line, i) => `${String(lines.length - lastLines.length + i + 1).padStart(4)}|${line}`).join('\n');
-})()}
-
-【判断规则（优先级从高到低）】
-1. 如果日志尾部最后若干行中包含 "Failed to start the minecraft server"、"LoadingFailedException"、"has failed to load correctly"、"ERROR"、"Exception"、"Caused by"、"FATAL" 等错误，即使退出码为 0，也必须判定为崩溃。
-2. 特别注意：ModLauncher、BootstrapLauncher 中任何 mod 加载错误、LoadingFailedException 都属于严重崩溃，绝不能判定为完成。
-3. 特别注意："has failed to load correctly" 表示模组加载失败，属于严重错误，绝不能判定为完成。
-4. 只有日志尾部最后若干行完全没有任何错误（全部是 INFO 级别消息，且包含 Done! / Forge 启动成功关键字），才能返回 type: "complete"。
-
-【输出要求】
-- 如果判定为正常完成：actions 中只包含 { type: "complete", target: "", reason: "..." }
-- 如果判定为崩溃：按标准崩溃诊断格式输出 diagnosis、causes、actions（修复建议），并在 diagnosis 末尾标注出问题的行号，如"（问题出现在日志第 23-35 行）"
-- 严格返回 JSON 格式，不要添加任何额外说明。`;
+    const lines = logContext.split('\n');
+    const lastLines = lines.slice(-60);
+    const formattedLogContext = lastLines.map((line, i) => `${String(lines.length - lastLines.length + i + 1).padStart(4)}|${line}`).join('\n');
+    const prompt = fillTemplate(CHECK_COMPLETION_PROMPT, {
+      logContext: formattedLogContext
+    });
 
     const convId = `check-${Date.now()}`;
 
@@ -365,10 +369,28 @@ ${(() => {
   ): Promise<AIDiagnosis> {
     const prompt = this.buildPrompt(crashInfo, context);
 
+    // 记录发送给 AI 的前 10 行和后 10 行
+    const promptLines = prompt.split('\n');
+    const promptLog = [
+      ...promptLines.slice(0, 10),
+      '...（中间省略）...',
+      ...promptLines.slice(-10)
+    ].join('\n');
+    logger.info(`[AI 诊断] 发送给 AI 的 Prompt（前 10 行 + 后 10 行）:\n${promptLog}`);
+
+    let diagnosis: AIDiagnosis;
     if (this.config.provider === 'ollama') {
-      return this.callOllama(prompt);
+      diagnosis = await this.callOllama(prompt);
+    } else {
+      diagnosis = await this.callOpenAI(prompt);
     }
-    return this.callOpenAI(prompt);
+
+    // 记录 AI 返回的前 10 行
+    const responseLines = (diagnosis.diagnosis || '').split('\n');
+    const responseLog = responseLines.slice(0, 10).join('\n');
+    logger.info(`[AI 诊断] AI 返回（前 10 行）:\n${responseLog || '(空)'}`);
+
+    return diagnosis;
   }
 
   /**
@@ -463,47 +485,16 @@ ${(() => {
       ? context.previousActions.map((a: RepairAction) => `- ${a.type}: ${a.target} (${a.reason})`).join('\n')
       : '（无）';
 
-    return `你是一个 Minecraft 服务端崩溃诊断专家，人称"解决服务端崩溃最严厉的父亲"。
-请分析以下服务端崩溃信息，给出幽默严厉的简短诊断和修复方案。
-
-## 服务端信息
-- 类型: ${context.serverType}
-- Minecraft 版本: ${context.mcVersion}
-- Java 版本: ${context.javaVersion}
-
-## 已安装模组
-${modListStr}
-
-## 崩溃日志（最后部分，每行前面有行号，从 1 开始编号）
-\`\`\`
-${logWithLineNums}
-\`\`\`
-
-## 崩溃分类
-- 类型: ${crashInfo.classification.type}
-- 初步原因: ${crashInfo.classification.reason}
-
-## 上次修复操作（如果有）
-${prevActionsStr}
-
-## 要求
-请以严格 JSON 格式返回，包含以下字段（不要使用 markdown 代码块包裹，只返回纯 JSON）：
-- "diagnosis": 中文简短诊断，带有严厉父亲批评口吻（如"你的服务端又崩了！连个破模组都管不好吗！"），并且在 diagnosis 末尾标注出问题的行号，如"（第 23-35 行出现严重错误）"
-- "causes": 原因列表（字符串数组）
-- "actions": 修复操作列表，每个操作包含：
-  - "type": 操作类型（move_file / delete_file / edit_config / add_jvm_arg / remove_mod / download_file）
-  - "target": 目标文件路径（相对于服务端根目录）
-  - "destination": 移动目标路径（仅 move_file/remove_mod 需要）
-  - "file": 配置文件路径（仅 edit_config 需要）
-  - "key_path": 配置键路径（仅 edit_config 需要）
-  - "new_value": 新值（仅 edit_config / add_jvm_arg 需要）
-  - "jvm_arg": JVM 参数（仅 add_jvm_arg 需要）
-  - "reason": 操作原因
-
-注意：
-- 操作路径必须相对于服务端根目录
-- 不要建议删除模组文件，而是用 remove_mod 移动到 .rubbish/ 目录
-- 只生成合理的操作，不要无意义操作`;
+    return fillTemplate(DIAGNOSIS_PROMPT, {
+      serverType: context.serverType || '未知',
+      mcVersion: context.mcVersion || '未知',
+      javaVersion: context.javaVersion || '未知',
+      modList: modListStr,
+      logContext: logWithLineNums,
+      crashType: crashInfo.classification.type,
+      crashReason: crashInfo.classification.reason,
+      previousActions: prevActionsStr
+    });
   }
 
   /**

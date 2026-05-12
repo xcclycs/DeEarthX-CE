@@ -1,0 +1,38 @@
+{
+  "id": "rollback_1778500846101_kts0oj",
+  "timestamp": "2026-05-11T12:00:46.101Z",
+  "crashId": "ai-exit-1778500793940",
+  "reverted": false,
+  "snapshots": [
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\Tweakerge-0.1.5-mc1.20.1.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778500846101_kts0oj_Tweakerge-0.1.5-mc1.20.1.jar",
+      "type": "remove_mod",
+      "description": "该模组是客户端专用，不应在服务器运行"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\MaFgLib-0.1.14-mc1.20.1.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778500846101_kts0oj_MaFgLib-0.1.14-mc1.20.1.jar",
+      "type": "remove_mod",
+      "description": "该模组是客户端专用，不应在服务器运行"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\oculus-mc1.20.1-1.8.0.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778500846101_kts0oj_oculus-mc1.20.1-1.8.0.jar",
+      "type": "remove_mod",
+      "description": "Oculus 是 Iris Shaders 的依赖，属于客户端专用"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\chunksfadein-forge-3.0.20-1.20.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778500846101_kts0oj_chunksfadein-forge-3.0.20-1.20.jar",
+      "type": "remove_mod",
+      "description": "该模组是客户端视觉效果模组，不应在服务器运行"
+    },
+    {
+      "originalPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\mods\\IMBlocker-5.4.6.1-forge+1.17-1.20.4.jar",
+      "backupPath": "D:\\Users\\Grace-X\\Desktop\\DeEarthX-CE\\backend\\instance\\XCCMODCREAT\\.rubbish\\rollback_rollback_1778500846101_kts0oj_IMBlocker-5.4.6.1-forge+1.17-1.20.4.jar",
+      "type": "remove_mod",
+      "description": "输入法阻止器是客户端专用工具"
+    }
+  ]
+}

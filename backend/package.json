@@ -8,7 +8,7 @@
   "main": "dist/bundle.js",
   "bin": "dist/bundle.js",
   "scripts": {
-    "test": "set \"DEBUG=true\"&&tsc&&node dist/main.js",
+    "test": "set \"DEBUG=true\"&&tsc&&xcopy /E /I /Y src\\guardian\\prompts dist\\guardian\\prompts >nul 2>&1&&node dist/main.js",
     "rollup": "rollup -c rollup.config.js",
     "sea": "node --experimental-sea-config sea-config.json",
     "sea:build": "node -e \"require('fs').copyFileSync(process.execPath, './dist/core.exe')\" && npx postject ./dist/core.exe NODE_SEA_BLOB ./dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
@@ -36,6 +36,7 @@
     "typescript": "^5.9.2"
   },
   "dependencies": {
+    "@types/iconv-lite": "^0.0.1",
     "@types/yazl": "^3.3.0",
     "adm-zip": "^0.5.16",
     "cors": "^2.8.5",
@@ -43,6 +44,7 @@
     "fs-extra": "^11.3.1",
     "glob": "^13.0.6",
     "got": "^14.4.8",
+    "iconv-lite": "^0.7.2",
     "inflight": "^1.0.6",
     "multer": "^2.0.2",
     "p-map": "^7.0.3",

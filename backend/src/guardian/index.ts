@@ -41,6 +41,7 @@ export interface GuardianCallbacks {
   onGiveUp: (reason: string) => void;
   onReport: (report: CrashReport) => void;
   onAIConversation: (conversations: AIConversation[]) => void;
+  onMetrics?: (metrics: { cpuPercent: number; memPercent: number }) => void;
 }
 
 export class GuardianController {
@@ -76,6 +77,8 @@ export class GuardianController {
   private startupCheckTimer: ReturnType<typeof setTimeout> | null = null;
   /** 启动确认检查计数器 */
   private startupCheckAttempt: number = 0;
+  /** 指标采集定时器 */
+  private metricsInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: IGuardianConfig, callbacks: GuardianCallbacks) {
     this.config = config;
@@ -206,6 +209,8 @@ export class GuardianController {
 
     // 启动确认检查：20s 后向 AI 确认服务端是否已完成加载
     this.startStartupCheck();
+    // 开始采集 CPU/内存指标
+    this.startMetricsPolling();
     return true;
   }
 
@@ -215,6 +220,14 @@ export class GuardianController {
   public async stop(): Promise<void> {
     this.isFixCycleActive = false;
     this.clearStartupCheck();
+    this.stopMetricsPolling();
+
+    // 停止前先确认服务端是否已完成启动
+    // 若未完成，用 AI 的多轮检测等待它完成（最多 5 轮 × 20s）
+    this.status = 'analyzing';
+    this.callbacks.onStatusChange('analyzing', { message: '停止前确认服务端启动状态...' });
+    await this.ensureServerStartedBeforeStop();
+
     await this.processManager.stop();
     this.status = 'stopped';
     this.currentCrashInfo = null;
@@ -222,6 +235,31 @@ export class GuardianController {
     this.pendingActions = [];
     this.callbacks.onStatusChange('stopped');
     logger.info('ServerGuardian 已停止');
+  }
+
+  /**
+   * 停止前等 AI 确认服务端启动完成（最多 5 次 × 20s）
+   */
+  private async ensureServerStartedBeforeStop(): Promise<void> {
+    const maxAttempts = 5;
+    for (let i = 0; i < maxAttempts; i++) {
+      const recentLogs = this.logParser?.getBuffer()?.slice(-120).join('\n') || '（无日志）';
+      try {
+        const diagnosis = await this.aiAdvisor.checkCompletion(recentLogs);
+        const hasComplete = diagnosis.actions.some(a => a.type === 'complete');
+        if (hasComplete) {
+          logger.info(`停止前确认：AI 判定服务端已完成加载（第 ${i + 1} 次检查），继续停止流程`);
+          return;
+        }
+      } catch {
+        // AI 失败时继续等待
+      }
+
+      logger.info(`停止前确认：服务端未完成启动（第 ${i + 1}/${maxAttempts} 次），20s 后再次检查`);
+      await new Promise(r => setTimeout(r, 20000));
+    }
+
+    logger.warn(`停止前确认：${maxAttempts} 次检查后仍未确认完成启动，强制进入停止流程`);
   }
 
   /**
@@ -288,13 +326,30 @@ export class GuardianController {
       this.callbacks.onActionExecuted(result);
     }
 
-    // 清理待执行列表
+    // 清理已处理的待执行项
     this.pendingActions = this.pendingActions.filter(a => !actionIds.includes(a.id));
 
-    // 执行完修复后重启
-    if ((this.status as GuardianStatus) !== 'stopped') {
-      await this.restartServer();
+    // 仍有等待确认的操作 → 继续等待用户处理
+    if (this.pendingActions.length > 0) {
+      this.status = 'awaiting_user';
+      this.callbacks.onStatusChange('awaiting_user', {
+        pendingCount: this.pendingActions.length,
+        message: `仍有 ${this.pendingActions.length} 个修复操作等待确认`
+      });
+      this.callbacks.onActionsRequired(this.pendingActions);
+      logger.info(`仍有 ${this.pendingActions.length} 个修复操作等待确认`);
+      return;
     }
+
+    // 所有待确认操作已全部执行完成 → 等用户手动确认重启，绝不自动重启
+    this.status = 'awaiting_user';
+    this.callbacks.onStatusChange('awaiting_user', {
+      pendingCount: 0,
+      restartNeeded: true,
+      message: '修复操作已全部执行，等待用户确认重启服务端'
+    });
+    this.callbacks.onLogLine('[Guardian] 修复操作已全部执行，请确认是否重启服务端', false);
+    logger.info('所有修复操作已执行，等待用户确认重启');
   }
 
   /**
@@ -307,7 +362,26 @@ export class GuardianController {
       // 所有操作都被拒绝，通知用户
       this.callbacks.onGiveUp('用户拒绝了所有修复操作');
       this.isFixCycleActive = false;
+    } else {
+      // 还有剩余操作等待用户处理
+      this.callbacks.onActionsRequired(this.pendingActions);
+      this.callbacks.onStatusChange('awaiting_user', {
+        pendingCount: this.pendingActions.length
+      });
     }
+  }
+
+  /**
+   * 用户手动确认重启服务端（修复操作全部处理完毕后调用）
+   */
+  public async confirmRestart(): Promise<void> {
+    if (this.pendingActions.length > 0) {
+      this.callbacks.onLogLine('[Guardian] 仍有待确认的修复操作，拒绝重启', true);
+      logger.warn(`用户请求重启，但仍有 ${this.pendingActions.length} 个操作待确认，已拒绝`);
+      return;
+    }
+    this.callbacks.onLogLine('[Guardian] 用户已确认，正在重启服务端...', false);
+    await this.restartServer();
   }
 
   /**
@@ -392,6 +466,25 @@ export class GuardianController {
     if (this.startupCheckTimer) {
       clearTimeout(this.startupCheckTimer);
       this.startupCheckTimer = null;
+    }
+  }
+
+  /** 开始采集进程指标（每 2 秒一次） */
+  private startMetricsPolling(): void {
+    this.stopMetricsPolling();
+    this.metricsInterval = setInterval(() => {
+      if (!this.processManager) return;
+      const metrics = this.processManager.getMetrics();
+      if (metrics && this.callbacks.onMetrics) {
+        this.callbacks.onMetrics(metrics);
+      }
+    }, 2000);
+  }
+
+  private stopMetricsPolling(): void {
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+      this.metricsInterval = null;
     }
   }
 
@@ -526,7 +619,14 @@ export class GuardianController {
    */
   private handleProcessCrash(exitCode: number, signal: string | null): void {
     this.clearStartupCheck();
+    this.stopMetricsPolling();
     if (this.isFixCycleActive || this.status === 'stopped') return;
+
+    // 有待用户确认的操作时，忽略任何进程退出事件
+    if (this.pendingActions.length > 0) {
+      logger.info('有待用户确认的修复操作，忽略本次进程退出事件');
+      return;
+    }
 
     // 检测 EULA 问题（无论退出码如何）
     const eulaDetected = this.logParser?.hasEULA?.() || false;
@@ -582,7 +682,7 @@ export class GuardianController {
 
       // 收集最近日志作为上下文
       const recentLogs = this.logParser?.getBuffer()?.slice(-120).join('\n') || '（无日志）';
-      this.aiAdvisor.checkCompletion(recentLogs).then(diagnosis => {
+      this.aiAdvisor.checkCompletion(recentLogs).then(async diagnosis => {
         const hasComplete = diagnosis.actions.some(a => a.type === 'complete');
         // 即使 AI 说完成，也要二次确认日志中没有明显错误关键字
         const crashKeywords = ['Failed to start the minecraft server', 'LoadingFailedException', 'has failed to load correctly', 'FATAL'];
@@ -594,28 +694,18 @@ export class GuardianController {
           const completeAction = diagnosis.actions.find(a => a.type === 'complete')!;
           this.safeExecutor.executeAction(completeAction);
         } else if (diagnosis.actions.length > 0) {
-          // AI 检测到崩溃并有修复建议
-          logger.warn('AI 检测到日志中存在异常，使用现有诊断结果直接处理');
-          this.consecutiveCrashes++;
-          this.status = 'crash_detected';
-          this.callbacks.onStatusChange('crash_detected', {
-            crashCount: this.consecutiveCrashes,
-            logContext: recentLogs.slice(0, 500)
-          });
-
-          this.currentDiagnosis = diagnosis;
-          this.status = 'awaiting_user';
-          this.callbacks.onStatusChange('awaiting_user', {
-            diagnosis,
-            actions: diagnosis.actions,
-            logContext: recentLogs
-          });
-
-          const actionsWithId = diagnosis.actions.map((a, i) => ({
-            ...a,
-            id: a.id || `ai-action-${i}`
-          }));
-          this.pendingActions.push(...actionsWithId);
+          // AI 通过 checkCompletion 检测到异常 → 调用 handleCrash 进行完整的崩溃分析
+          logger.warn('AI 检测到日志中存在异常，调用崩溃分析进行二次诊断');
+          const crashInfo: CrashInfo = {
+            id: `ai-exit-${Date.now()}`,
+            severity: 'warning',
+            detectedPatterns: ['AI_DETECTED'],
+            classification: { type: 'CRASH_UNKNOWN', reason: 'checkCompletion 检测到异常', suspectedMods: diagnosis.causes, suspectedConfigs: [] },
+            timestamp: new Date().toISOString(),
+            exitCode: 0,
+            logContext: recentLogs.split('\n')
+          };
+          this.handleCrash(crashInfo);
         } else {
           // AI 未返回具体修复建议，日志中也没发现崩溃关键字 → 直接标记完成
           logger.info('AI 未能给出明确结论，但日志中未检测到崩溃关键字，标记为完成');
@@ -745,6 +835,11 @@ export class GuardianController {
    * 重启服务端
    */
   private async restartServer(): Promise<void> {
+    // 有等待用户确认的操作时，不自动重启
+    if (this.pendingActions.length > 0) {
+      logger.info('有待用户确认的修复操作，等待用户处理后再重启');
+      return;
+    }
     this.isFixCycleActive = true;
     this.status = 'restarting';
     this.restartCount++;
@@ -768,6 +863,7 @@ export class GuardianController {
       this.status = 'monitoring';
       this.callbacks.onStatusChange('monitoring');
       logger.info(`服务端已重启（第 ${this.restartCount} 次）`);
+      this.startMetricsPolling();
     } else {
       this.status = 'stopped';
       this.callbacks.onStatusChange('stopped', { error: '重启失败' });

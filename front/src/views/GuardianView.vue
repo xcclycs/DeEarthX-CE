@@ -74,6 +74,9 @@ const actionResults = ref<Array<{
   error?: string;
 }>>([]);
 
+// 修复全部执行完成后是否需要等待用户手动重启
+const restartNeeded = ref(false);
+
 // 统计数据
 const stats = ref({
   crashCount: 0,
@@ -84,6 +87,9 @@ const stats = ref({
 
 // 报告列表
 const reports = ref<Array<{ id: string; timestamp: string; file: string }>>([]);
+
+// 进程指标
+const currentMetrics = ref<{ cpuPercent: number; memPercent: number }>({ cpuPercent: 0, memPercent: 0 });
 
 // AI 对话记录
 const aiConversations = ref<Array<{
@@ -152,6 +158,11 @@ function handleGuardianMessage(data: any) {
       if (data.data?.data?.restartCount !== undefined) {
         stats.value.restartCount = data.data.data.restartCount;
       }
+      // 状态变为非 awaiting_user 时清除重启等待标志
+      if (data.data?.status !== 'awaiting_user') {
+        restartNeeded.value = false;
+      }
+      restartNeeded.value = data.data?.data?.restartNeeded === true;
       break;
 
     case 'guardian_log':
@@ -217,6 +228,15 @@ function handleGuardianMessage(data: any) {
         content: `原因: ${data.data?.reason || '连续崩溃超限'}\n建议手动排查问题。`,
         okText: '知道了'
       });
+      break;
+
+    case 'guardian_metrics':
+      if (data.data) {
+        currentMetrics.value = {
+          cpuPercent: data.data.cpuPercent || 0,
+          memPercent: data.data.memPercent || 0
+        };
+      }
       break;
 
     case 'guardian_report':
@@ -357,6 +377,12 @@ function approveAllActions() {
 function rejectAction(actionId: string) {
   sendGuardianMessage('guardian_reject', { actionIds: [actionId] });
   pendingActions.value = pendingActions.value.filter(a => a.id !== actionId);
+}
+
+function confirmRestart() {
+  sendGuardianMessage('guardian_restart');
+  restartNeeded.value = false;
+  message.info('正在重启服务端...');
 }
 
 function rollbackLastFix() {
@@ -562,6 +588,10 @@ onUnmounted(() => {
         </span>
         <Tag v-if="processRunning" color="green">进程运行中</Tag>
         <Tag v-else color="default">进程已停止</Tag>
+        <span v-if="processRunning" class="metrics-display">
+          <Tag>CPU {{ currentMetrics.cpuPercent }}%</Tag>
+          <Tag>内存 {{ currentMetrics.memPercent }}%</Tag>
+        </span>
       </div>
       <div class="status-right">
         <Tag v-if="wsConnected" color="green">已连接</Tag>
@@ -753,6 +783,21 @@ onUnmounted(() => {
           <div class="action-bulk">
             <Button type="primary" block @click="approveAllActions">
               <ThunderboltOutlined /> 批准全部安全操作
+            </Button>
+          </div>
+        </Card>
+
+        <!-- 确认重启（所有修复操作已执行完毕，等待用户手动确认） -->
+        <Card v-if="restartNeeded && pendingActions.length === 0"
+              title="🚀 等待确认重启" size="small"
+              class="restart-card">
+          <div class="restart-info">
+            <Alert type="info" show-icon :message="'修复操作已全部执行完毕'" />
+            <div class="restart-hint">请确认是否重新启动服务端以应用修复</div>
+          </div>
+          <div class="restart-buttons">
+            <Button type="primary" size="large" block @click="confirmRestart">
+              <ReloadOutlined /> 确认重启服务端
             </Button>
           </div>
         </Card>
@@ -1019,7 +1064,8 @@ onUnmounted(() => {
 
 .diagnostic-card,
 .actions-card,
-.stats-card {
+.stats-card,
+.restart-card {
   flex-shrink: 0;
 }
 
@@ -1081,6 +1127,23 @@ onUnmounted(() => {
 
 .action-bulk {
   margin-top: 8px;
+}
+
+/* 确认重启卡片 */
+.restart-card {
+  border: 2px solid #1890ff;
+}
+.restart-info {
+  margin-bottom: 12px;
+}
+.restart-hint {
+  font-size: 13px;
+  color: #666;
+  margin-top: 8px;
+  text-align: center;
+}
+.restart-buttons {
+  margin-top: 4px;
 }
 
 .stats-grid {
