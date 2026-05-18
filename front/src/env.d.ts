@@ -16,6 +16,7 @@ interface Window {
     uploadProgress?: any;
     unzipProgress?: any;
     downloadProgress?: any;
+    downloadDescription?: any;
     serverInstallProgress?: any;
     filterModsProgress?: any;
     serverInstallInfo?: any;
