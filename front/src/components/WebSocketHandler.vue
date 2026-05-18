@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { message, notification } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { ErrorCode, createErrorInfo } from '../utils/errorCodes';
-import { getSocketIO, disconnectSocket, on, off, isConnected } from '../utils/socket';
+import { getSocketIO, disconnectSocket } from '../utils/socket';
 
 const { t } = useI18n();
 
@@ -228,14 +228,14 @@ function setupSocketIO() {
         console.log('Socket.IO 连接关闭');
     });
 
-    socket.on('connect_error', (error: Error) => {
-        notification.error({
-            message: t('home.ws_error_title'),
-            description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
-            duration: 0
-        });
-        resetState();
-    });
+    socket.on('connect_error', () => {
+  notification.error({
+    message: t('home.ws_error_title'),
+    description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
+    duration: 0
+  });
+  resetState();
+});
 }
 
 onUnmounted(() => {

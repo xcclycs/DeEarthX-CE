@@ -11,7 +11,7 @@ import {
   SettingOutlined, ConsoleSqlOutlined,
   BugOutlined, ThunderboltOutlined, UndoOutlined, ApiOutlined
 } from '@ant-design/icons-vue';
-import { getSocketIO, disconnectSocket, off } from '../utils/socket';
+import { getSocketIO, disconnectSocket } from '../utils/socket';
 
 const { t } = useI18n();
 

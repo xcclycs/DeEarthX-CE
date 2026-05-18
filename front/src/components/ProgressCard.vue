@@ -62,13 +62,14 @@ function formatTime(seconds: number): string {
 }
 
 defineExpose({
-    uploadProgress,
-    unzipProgress,
-    downloadProgress,
-    serverInstallProgress,
-    filterModsProgress,
-    serverInstallInfo,
-    filterModsInfo
+  uploadProgress,
+  unzipProgress,
+  downloadProgress,
+  downloadDescription,
+  serverInstallProgress,
+  filterModsProgress,
+  serverInstallInfo,
+  filterModsInfo
 });
 
 watch(() => window.progressData, (newData) => {
