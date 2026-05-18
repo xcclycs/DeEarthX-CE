@@ -3,37 +3,33 @@ import { h, ref, onMounted, onUnmounted, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import {
   message, notification, Modal, Tag, Card, Button, Switch, Select,
-  Input, Tooltip, Collapse, CollapsePanel, Badge, Timeline, Divider, Alert
+  Input, Tooltip, Collapse, CollapsePanel, Badge, Divider, Alert
 } from 'ant-design-vue';
 import {
   PlayCircleOutlined, PauseCircleOutlined, ReloadOutlined,
-  AlertOutlined, RobotOutlined, FileTextOutlined,
-  RollbackOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  SettingOutlined, ConsoleSqlOutlined, WarningOutlined,
+  CheckCircleOutlined, CloseCircleOutlined,
+  SettingOutlined, ConsoleSqlOutlined,
   BugOutlined, ThunderboltOutlined, UndoOutlined, ApiOutlined
 } from '@ant-design/icons-vue';
+import { getSocketIO, disconnectSocket, off } from '../utils/socket';
 
 const { t } = useI18n();
 
-// ============== 模块级持久连接（跨路由切换保活） ==============
-let _ws: WebSocket | null = null;
 let _logIdCounter = 0;
 let _statusRefreshTimer: number | null = null;
+let _socket: ReturnType<typeof getSocketIO> | null = null;
 
-// ============== 状态定义 ==============
 const wsConnected = ref(false);
 const guardianStatus = ref<string>('idle');
 const processRunning = ref(false);
 const logLines = ref<Array<{ line: string; isError: boolean; id: number }>>([]);
 const logContainer = ref<HTMLDivElement | null>(null);
 
-// 启动配置
 const launchWorkDir = ref<string>('');
 const launchJavaCmd = ref<string>('');
 const launchServerType = ref<string>('forge');
 const launchModalVisible = ref(false);
 
-// 从 localStorage 读取存储的 AI 配置，失败时使用默认值
 function loadStoredConfig<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -42,7 +38,6 @@ function loadStoredConfig<T>(key: string, fallback: T): T {
   return fallback;
 }
 
-// AI 模式配置
 const aiProvider = ref<string>(loadStoredConfig('guardian_aiProvider', 'openai'));
 const aiApiKey = ref<string>(loadStoredConfig('guardian_aiApiKey', ''));
 const aiModel = ref<string>(loadStoredConfig('guardian_aiModel', 'gpt-5.4-mini'));
@@ -50,14 +45,12 @@ const aiBaseUrl = ref<string>(loadStoredConfig('guardian_aiBaseUrl', 'https://ai
 const autoAcceptLowRisk = ref<boolean>(loadStoredConfig('guardian_autoAcceptLowRisk', true));
 const maxCrashes = ref<number>(loadStoredConfig('guardian_maxCrashes', 5));
 
-// 崩溃诊断状态
 const crashDiagnosis = ref<{
   diagnosis: string;
   causes: string[];
   confidence: number;
 } | null>(null);
 
-// 待执行操作
 const pendingActions = ref<Array<{
   id: string;
   type: string;
@@ -67,17 +60,14 @@ const pendingActions = ref<Array<{
   approved?: boolean;
 }>>([]);
 
-// 操作执行结果
 const actionResults = ref<Array<{
   actionId: string;
   success: boolean;
   error?: string;
 }>>([]);
 
-// 修复全部执行完成后是否需要等待用户手动重启
 const restartNeeded = ref(false);
 
-// 统计数据
 const stats = ref({
   crashCount: 0,
   restartCount: 0,
@@ -85,13 +75,10 @@ const stats = ref({
   reportsCount: 0
 });
 
-// 报告列表
 const reports = ref<Array<{ id: string; timestamp: string; file: string }>>([]);
 
-// 进程指标
 const currentMetrics = ref<{ cpuPercent: number; memPercent: number }>({ cpuPercent: 0, memPercent: 0 });
 
-// AI 对话记录
 const aiConversations = ref<Array<{
   id: string; timestamp: string; type: string;
   prompt: string; rawResponse: string;
@@ -101,50 +88,83 @@ const aiConversations = ref<Array<{
 const showAIConversation = ref(false);
 const aiConvActiveKey = computed(() => showAIConversation.value ? ['ai-conv'] : []);
 
-// 设置面板可见
 const showSettings = ref(false);
 const activeSettingsKey = computed(() => showSettings.value ? ['settings'] : []);
 
-// AI 测试
 const testingAI = ref(false);
 const testAIResult = ref<{ success: boolean; message: string; latency?: number } | null>(null);
 
-// ============== WebSocket 连接 ==============
-function connectWebSocket() {
-  if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) {
-    // 已有活跃连接，直接更新状态并拉取数据
+function connectSocketIO() {
+  if (_socket && _socket.connected) {
     wsConnected.value = true;
     fetchGuardianStatus();
     return;
   }
-  try {
-    const wsHost = import.meta.env.VITE_WS_HOST || 'localhost';
-    const wsPort = import.meta.env.VITE_WS_PORT || '37019';
-    _ws = new WebSocket(`ws://${wsHost}:${wsPort}/`);
 
-    _ws.addEventListener('open', () => {
+  try {
+    _socket = getSocketIO();
+
+    _socket.on('connect', () => {
       wsConnected.value = true;
       fetchGuardianStatus();
       sendGuardianMessage('guardian_get_ai_conversation');
     });
 
-    _ws.addEventListener('message', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleGuardianMessage(data);
-      } catch { /* ignore non-JSON */ }
+    _socket.on('guardian_status', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_status', data });
     });
 
-    _ws.addEventListener('close', () => {
+    _socket.on('guardian_log', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_log', data });
+    });
+
+    _socket.on('guardian_crash_detected', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_crash_detected', data });
+    });
+
+    _socket.on('guardian_ai_analysis', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_ai_analysis', data });
+    });
+
+    _socket.on('guardian_actions_required', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_actions_required', data });
+    });
+
+    _socket.on('guardian_action_executed', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_action_executed', data });
+    });
+
+    _socket.on('guardian_give_up', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_give_up', data });
+    });
+
+    _socket.on('guardian_metrics', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_metrics', data });
+    });
+
+    _socket.on('guardian_report', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_report', data });
+    });
+
+    _socket.on('guardian_test_ai_result', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_test_ai_result', data });
+    });
+
+    _socket.on('guardian_ai_conversation', (data: any) => {
+      handleGuardianMessage({ type: 'guardian_ai_conversation', data });
+    });
+
+    _socket.on('disconnect', () => {
       wsConnected.value = false;
-      _ws = null;
+      _socket = null;
     });
 
-    _ws.addEventListener('error', () => {
+    _socket.on('connect_error', (err: Error) => {
+      console.error('Socket.IO 连接失败:', err);
       wsConnected.value = false;
     });
   } catch (err) {
-    console.error('WebSocket 连接失败:', err);
+    console.error('Socket.IO 初始化失败:', err);
   }
 }
 
@@ -158,7 +178,6 @@ function handleGuardianMessage(data: any) {
       if (data.data?.data?.restartCount !== undefined) {
         stats.value.restartCount = data.data.data.restartCount;
       }
-      // 状态变为非 awaiting_user 时清除重启等待标志
       if (data.data?.status !== 'awaiting_user') {
         restartNeeded.value = false;
       }
@@ -171,11 +190,9 @@ function handleGuardianMessage(data: any) {
         isError: data.data.isError,
         id: _logIdCounter++
       });
-      // 保持最多 200 行
       if (logLines.value.length > 200) {
         logLines.value = logLines.value.slice(-200);
       }
-      // 自动滚动到底部
       setTimeout(() => {
         if (logContainer.value) {
           logContainer.value.scrollTop = logContainer.value.scrollHeight;
@@ -187,8 +204,8 @@ function handleGuardianMessage(data: any) {
       const crash = data.data;
       crashDiagnosis.value = null;
       notification.warning({
-        message: '检测到服务端崩溃',
-        description: `崩溃类型: ${crash.classification?.type || '未知'}\n${crash.classification?.reason || ''}`,
+        message: t('guardian.crash_detected'),
+        description: `${t('guardian.crash_type')}: ${crash.classification?.type || t('guardian.crash_unknown')}\n${crash.classification?.reason || ''}`,
         duration: 0,
         placement: 'topRight'
       });
@@ -206,8 +223,8 @@ function handleGuardianMessage(data: any) {
     case 'guardian_actions_required':
       pendingActions.value = data.data || [];
       notification.info({
-        message: '需要确认修复操作',
-        description: `有 ${(data.data || []).length} 个修复操作等待您的确认`,
+        message: t('guardian.actions_need_confirm'),
+        description: t('guardian.actions_need_confirm_desc', { count: (data.data || []).length }),
         duration: 0,
         placement: 'topRight'
       });
@@ -216,17 +233,17 @@ function handleGuardianMessage(data: any) {
     case 'guardian_action_executed':
       actionResults.value.push(data.data);
       if (data.data.success) {
-        message.success(`操作成功: ${data.data.actionId}`);
+        message.success(t('guardian.actions_success', { id: data.data.actionId }));
       } else {
-        message.error(`操作失败: ${data.data.error}`);
+        message.error(t('guardian.actions_failed', { error: data.data.error }));
       }
       break;
 
     case 'guardian_give_up':
       Modal.warning({
-        title: 'ServerGuardian 已放弃',
-        content: `原因: ${data.data?.reason || '连续崩溃超限'}\n建议手动排查问题。`,
-        okText: '知道了'
+        title: t('guardian.give_up_title'),
+        content: `${t('guardian.give_up_content', { reason: data.data?.reason || t('guardian.give_up_default_reason') })}\n${t('guardian.give_up_suggestion')}`,
+        okText: t('guardian.give_up_ok')
       });
       break;
 
@@ -257,7 +274,6 @@ function handleGuardianMessage(data: any) {
   }
 }
 
-// ============== API 请求 ==============
 function getApiHost(): string {
   return `http://${import.meta.env.VITE_API_HOST || 'localhost'}:${import.meta.env.VITE_API_PORT || '37019'}`;
 }
@@ -275,21 +291,17 @@ async function fetchGuardianStatus() {
   } catch { /* ignore */ }
 }
 
-// ============== 操作 ==============
 function sendGuardianMessage(type: string, data?: any) {
-  if (_ws && _ws.readyState === WebSocket.OPEN) {
-    _ws.send(JSON.stringify({ type, data }));
+  if (_socket && _socket.connected) {
+    _socket.emit(type, data);
   } else {
-    message.error('WebSocket 未连接');
+    message.error(t('guardian.ws_not_connected'));
   }
 }
 
-// ============== 文件夹选择（Tauri 或 Web 方式） ==============
-const dirPicker = ref<HTMLInputElement | null>(null);
 let dirInputEl: HTMLInputElement | null = null;
 
 function openDirPicker() {
-  // 尝试用 webkitdirectory 选文件夹
   if (!dirInputEl) {
     dirInputEl = document.createElement('input');
     dirInputEl.type = 'file';
@@ -298,13 +310,8 @@ function openDirPicker() {
     dirInputEl.style.display = 'none';
     dirInputEl.addEventListener('change', (e: Event) => {
       const target = e.target as HTMLInputElement;
-      const files = target.files;
-      if (files && files.length > 0) {
-        // 取第一个文件的路径，去掉文件名得到目录
-        const fullPath = files[0].webkitRelativePath || files[0].name;
-        // 用最后一级目录名反推路径（浏览器安全限制只能拿相对路径）
-        // 只能让用户手动粘贴完整路径了
-        message.info('浏览器安全限制，请手动粘贴完整路径');
+      if (target.files && target.files.length > 0) {
+        message.info(t('guardian.browser_path_limit'));
       }
     });
     document.body.appendChild(dirInputEl);
@@ -314,11 +321,11 @@ function openDirPicker() {
 
 function startGuardian() {
   if (aiProvider.value === 'openai' && !aiApiKey.value.trim()) {
-    message.warning('请先配置 AI 密钥（点击右上角齿轮图标），或在设置中将 AI 模式切换为"纯规则"后重试');
+    message.warning(t('guardian.settings_need_ai_key'));
     return;
   }
   if (aiProvider.value === 'ollama' && !aiBaseUrl.value.trim()) {
-    message.warning('Ollama 模式下请先填写服务地址（点击右上角齿轮图标），或在设置中切换为其他模式后重试');
+    message.warning(t('guardian.settings_need_ollama_url'));
     return;
   }
   launchModalVisible.value = true;
@@ -326,16 +333,15 @@ function startGuardian() {
 
 function confirmLaunch() {
   if (!launchWorkDir.value.trim()) {
-    message.warning('请填写服务端目录');
+    message.warning(t('guardian.launch_need_workdir'));
     return;
   }
-  // 检查 AI 配置
   if (aiProvider.value === 'openai' && !aiApiKey.value.trim()) {
-    message.warning('AI 模式为 OpenAI 但未填写 API Key，请先点击齿轮图标进行配置');
+    message.warning(t('guardian.settings_need_openai_key'));
     return;
   }
   if (aiProvider.value === 'ollama' && !aiBaseUrl.value.trim()) {
-    message.warning('AI 模式为 Ollama 但未填写服务地址，请先点击齿轮图标进行配置');
+    message.warning(t('guardian.settings_need_ollama_url2'));
     return;
   }
   sendGuardianMessage('guardian_start', {
@@ -343,20 +349,20 @@ function confirmLaunch() {
     javaCommand: launchJavaCmd.value,
     serverType: launchServerType.value
   });
-  message.loading('正在启动服务端...');
+  message.loading(t('guardian.launch_starting'));
   launchModalVisible.value = false;
 }
 
 function stopGuardian() {
   Modal.confirm({
-    title: '停止 ServerGuardian',
-    content: '确定要停止监控吗？正在运行的服务端也会被关闭。',
-    okText: '停止',
-    cancelText: '取消',
+    title: t('guardian.stop_title'),
+    content: t('guardian.stop_content'),
+    okText: t('guardian.stop_ok'),
+    cancelText: t('guardian.stop_cancel'),
     okType: 'danger',
     onOk: () => {
       sendGuardianMessage('guardian_stop');
-      message.info('已停止监控');
+      message.info(t('guardian.stop_success'));
       guardianStatus.value = 'stopped';
     }
   });
@@ -382,24 +388,23 @@ function rejectAction(actionId: string) {
 function confirmRestart() {
   sendGuardianMessage('guardian_restart');
   restartNeeded.value = false;
-  message.info('正在重启服务端...');
+  message.info(t('guardian.restart_restarting'));
 }
 
 function rollbackLastFix() {
   Modal.confirm({
-    title: '撤销上次修复',
-    content: '确定要撤销上一个修复操作吗？这会恢复被移动或修改的文件。',
-    okText: '撤销',
-    cancelText: '取消',
+    title: t('guardian.rollback_title'),
+    content: t('guardian.rollback_content'),
+    okText: t('guardian.rollback_ok'),
+    cancelText: t('guardian.rollback_cancel'),
     onOk: () => {
       sendGuardianMessage('guardian_rollback');
-      message.info('正在撤销...');
+      message.info(t('guardian.rollback_info'));
     }
   });
 }
 
 function saveSettings() {
-  // 持久化到 localStorage
   localStorage.setItem('guardian_aiProvider', JSON.stringify(aiProvider.value));
   localStorage.setItem('guardian_aiApiKey', JSON.stringify(aiApiKey.value));
   localStorage.setItem('guardian_aiModel', JSON.stringify(aiModel.value));
@@ -417,14 +422,13 @@ function saveSettings() {
     autoAcceptLowRisk: autoAcceptLowRisk.value,
     maxConsecutiveCrashes: maxCrashes.value
   });
-  message.success('设置已保存');
+  message.success(t('guardian.settings_saved'));
   showSettings.value = false;
 }
 
 function testAIConnection() {
   testAIResult.value = null;
   testingAI.value = true;
-  // 先把当前 AI 配置同步到后端，再发送测试请求
   sendGuardianMessage('guardian_update_config', {
     ai: {
       provider: aiProvider.value,
@@ -435,16 +439,14 @@ function testAIConnection() {
     autoAcceptLowRisk: autoAcceptLowRisk.value,
     maxConsecutiveCrashes: maxCrashes.value
   });
-  // 给后端一个微小的 tick 消化配置更新
   setTimeout(() => {
     sendGuardianMessage('guardian_test_ai');
-    // 15 秒安全超时：若后端未返回结果则自动停止转圈
     setTimeout(() => {
       if (testingAI.value) {
         testingAI.value = false;
         testAIResult.value = {
           success: false,
-          message: '连接超时（15 秒），请检查后端是否运行、AI 地址和密钥是否正确'
+          message: t('guardian.settings_test_timeout')
         };
       }
     }, 15000);
@@ -458,9 +460,9 @@ function clearLog() {
 function copyLog() {
   const text = logLines.value.map(l => l.line).join('\n');
   navigator.clipboard.writeText(text).then(() => {
-    message.success(`已复制 ${logLines.value.length} 行日志`);
+    message.success(t('guardian.log_copied', { count: logLines.value.length }));
   }).catch(() => {
-    message.error('复制失败');
+    message.error(t('guardian.log_copy_failed'));
   });
 }
 
@@ -473,31 +475,31 @@ function exportLog() {
   a.download = `server-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
   a.click();
   URL.revokeObjectURL(url);
-  message.success('日志已导出');
+  message.success(t('guardian.log_exported'));
 }
 
 function exportFullReport() {
   const now = new Date().toISOString();
   const logText = logLines.value.map(l => l.line).join('\n');
   const convText = aiConversations.value.map(c =>
-    `### ${c.type === 'diagnosis' ? 'AI 诊断' : c.type === 'test' ? '测试' : '规则回退'} (${formatTime(c.timestamp)})\n\n` +
-    `**发送给 AI:**\n\`\`\`\n${c.prompt.slice(0, 1000)}\n\`\`\`\n\n` +
-    `**AI 回复:**\n\`\`\`json\n${c.rawResponse.slice(0, 2000)}\n\`\`\`\n\n`
+    `### ${c.type === 'diagnosis' ? t('guardian.ai_conv_type_diagnosis') : c.type === 'test' ? t('guardian.ai_conv_type_test') : t('guardian.ai_conv_type_fallback')} (${formatTime(c.timestamp)})\n\n` +
+    `**${t('guardian.ai_conv_sent')}:**\n\`\`\`\n${c.prompt.slice(0, 1000)}\n\`\`\`\n\n` +
+    `**${t('guardian.ai_conv_received')}:**\n\`\`\`json\n${c.rawResponse.slice(0, 2000)}\n\`\`\`\n\n`
   ).join('---\n');
 
-  const report = `# ServerGuardian 完整报告\n\n` +
-    `**生成时间:** ${now}\n` +
-    `**状态:** ${statusTextMap[guardianStatus.value] || guardianStatus.value}\n` +
-    `**进程:** ${processRunning.value ? '运行中' : '已停止'}\n` +
-    `**崩溃次数:** ${stats.value.crashCount}\n` +
-    `**重启次数:** ${stats.value.restartCount}\n\n` +
-    `## 崩溃诊断\n\n` +
+  const report = `# ServerGuardian ${t('guardian.report_exported')}\n\n` +
+    `**${t('guardian.log_export')}:** ${now}\n` +
+    `**${t('guardian.title')}:** ${statusTextMap[guardianStatus.value] || guardianStatus.value}\n` +
+    `**${t('guardian.process_running')}:** ${processRunning.value ? t('guardian.process_running') : t('guardian.process_stopped')}\n` +
+    `**${t('guardian.stats_crash_count')}:** ${stats.value.crashCount}\n` +
+    `**${t('guardian.stats_restart_count')}:** ${stats.value.restartCount}\n\n` +
+    `## ${t('guardian.crash_title')}\n\n` +
     (crashDiagnosis.value
-      ? `- **诊断:** ${crashDiagnosis.value.diagnosis}\n- **置信度:** ${Math.round(crashDiagnosis.value.confidence * 100)}%\n- **原因:**\n${crashDiagnosis.value.causes.map(c => `  - ${c}`).join('\n')}\n\n`
-      : '（暂无崩溃诊断）\n\n') +
-    `## 日志内容\n\n\`\`\`\n${logText.slice(0, 10000)}${logText.length > 10000 ? '\n...（日志过长已截断）' : ''}\n\`\`\`\n\n` +
-    `## AI 对话\n\n${convText || '（暂无 AI 对话记录）'}\n\n` +
-    `## 总结\n\n本次处理由 ServerGuardian 自动完成。\n`;
+      ? `- **${t('guardian.crash_cause_analysis')}:** ${crashDiagnosis.value.diagnosis}\n- **${t('guardian.crash_confidence', { percent: Math.round(crashDiagnosis.value.confidence * 100) })}**\n- **${t('guardian.crash_type')}:**\n${crashDiagnosis.value.causes.map(c => `  - ${c}`).join('\n')}\n\n`
+      : `${t('guardian.crash_no_diagnosis')}\n\n`) +
+    `## ${t('guardian.log_title')}\n\n\`\`\`\n${logText.slice(0, 10000)}${logText.length > 10000 ? '\n' + t('guardian.log_truncated') : ''}\n\`\`\`\n\n` +
+    `## ${t('guardian.ai_conv_title')}\n\n${convText || t('guardian.ai_conv_empty')}\n\n` +
+    `## ${t('guardian.log_export')}\n\n${t('guardian.title')} ${t('guardian.log_exported')}\n`;
 
   const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -506,7 +508,7 @@ function exportFullReport() {
   a.download = `guardian-report-${now.slice(0, 19).replace(/:/g, '-')}.md`;
   a.click();
   URL.revokeObjectURL(url);
-  message.success('完整报告已导出');
+  message.success(t('guardian.report_exported'));
 }
 
 function resetAIConversations() {
@@ -516,11 +518,23 @@ function resetAIConversations() {
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-// ============== 计算属性 ==============
-const statusColorMap: Record<string, string> = {
+const statusTextMap: Record<string, string> = {
+  idle: t('guardian.status_idle'),
+  starting: t('guardian.status_starting'),
+  monitoring: t('guardian.status_monitoring'),
+  crash_detected: t('guardian.status_crash_detected'),
+  analyzing: t('guardian.status_analyzing'),
+  awaiting_user: t('guardian.status_awaiting_user'),
+  fixing: t('guardian.status_fixing'),
+  restarting: t('guardian.status_restarting'),
+  stopped: t('guardian.status_stopped'),
+  give_up: t('guardian.status_give_up')
+};
+
+const statusColorMap: Record<string, 'success' | 'error' | 'default' | 'processing' | 'warning'> = {
   idle: 'default',
   starting: 'processing',
   monitoring: 'success',
@@ -531,19 +545,6 @@ const statusColorMap: Record<string, string> = {
   restarting: 'processing',
   stopped: 'default',
   give_up: 'error'
-};
-
-const statusTextMap: Record<string, string> = {
-  idle: '空闲',
-  starting: '启动中',
-  monitoring: '监控中',
-  crash_detected: '崩溃检测',
-  analyzing: 'AI 分析中',
-  awaiting_user: '等待确认',
-  fixing: '修复中',
-  restarting: '重启中',
-  stopped: '已停止',
-  give_up: '已放弃'
 };
 
 const guardianActive = computed(() => 
@@ -557,65 +558,63 @@ const riskColorMap: Record<string, string> = {
   critical: 'red'
 };
 
-// ============== 生命周期 ==============
 onMounted(() => {
-  connectWebSocket();
+  connectSocketIO();
   if (!_statusRefreshTimer) {
     _statusRefreshTimer = window.setInterval(fetchGuardianStatus, 5000);
   }
 });
 
 onUnmounted(() => {
-  // 不关闭 WS 连接，给下次进入时复用，避免刷新闪烁
   if (_statusRefreshTimer) {
     clearInterval(_statusRefreshTimer);
     _statusRefreshTimer = null;
   }
+  disconnectSocket();
 });
 </script>
 
 <template>
   <div class="guardian-container">
-    <!-- 顶部状态栏 -->
     <div class="status-bar">
       <div class="status-left">
         <span class="status-icon">
           <Badge :status="statusColorMap[guardianStatus] || 'default'" />
         </span>
         <span class="status-text">
-          <strong>ServerGuardian</strong>
-          <span class="status-detail">— {{ statusTextMap[guardianStatus] || '未知' }}</span>
+          <strong>{{ t('guardian.title') }}</strong>
+          <span class="status-detail">— {{ statusTextMap[guardianStatus] || t('guardian.status_unknown') }}</span>
         </span>
-        <Tag v-if="processRunning" color="green">进程运行中</Tag>
-        <Tag v-else color="default">进程已停止</Tag>
+        <Tag v-if="processRunning" color="green">{{ t('guardian.process_running') }}</Tag>
+        <Tag v-else color="default">{{ t('guardian.process_stopped') }}</Tag>
         <span v-if="processRunning" class="metrics-display">
           <Tag>CPU {{ currentMetrics.cpuPercent }}%</Tag>
-          <Tag>内存 {{ currentMetrics.memPercent }}%</Tag>
+          <Tag>{{ t('guardian.stats_memory') }} {{ currentMetrics.memPercent }}%</Tag>
         </span>
       </div>
       <div class="status-right">
-        <Tag v-if="wsConnected" color="green">已连接</Tag>
-        <Tag v-else color="red">未连接</Tag>
+        <Tag v-if="wsConnected" color="green">{{ t('guardian.connected') }}</Tag>
+        <Tag v-else color="red">{{ t('guardian.disconnected') }}</Tag>
 
-        <Tooltip title="启动">
+        <Tooltip :title="t('guardian.btn_start')">
           <Button type="primary" shape="circle"
                   @click="startGuardian" :disabled="guardianActive">
             <template #icon><PlayCircleOutlined /></template>
           </Button>
         </Tooltip>
-        <Tooltip title="停止">
+        <Tooltip :title="t('guardian.btn_stop')">
           <Button danger shape="circle"
                   @click="stopGuardian" :disabled="!guardianActive">
             <template #icon><PauseCircleOutlined /></template>
           </Button>
         </Tooltip>
-        <Tooltip title="撤销修复">
+        <Tooltip :title="t('guardian.btn_rollback')">
           <Button shape="circle"
                   @click="rollbackLastFix" :disabled="!guardianActive">
             <template #icon><UndoOutlined /></template>
           </Button>
         </Tooltip>
-        <Tooltip title="设置">
+        <Tooltip :title="t('guardian.btn_settings')">
           <Button shape="circle" @click="showSettings = !showSettings"
                   :type="showSettings ? 'primary' : 'default'">
             <template #icon><SettingOutlined /></template>
@@ -624,51 +623,50 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 设置面板（折叠） -->
     <Collapse :activeKey="activeSettingsKey" ghost>
       <CollapsePanel key="settings" :showArrow="false">
-        <Card title="AI 模式配置" size="small" class="settings-card">
+        <Card :title="t('guardian.settings_title')" size="small" class="settings-card">
           <div class="settings-grid">
             <div class="setting-item">
-              <label>AI 提供商</label>
+              <label>{{ t('guardian.settings_provider') }}</label>
               <Select v-model:value="aiProvider" style="width: 100%">
-                <SelectOption value="openai">OpenAI（云端）</SelectOption>
-                <SelectOption value="ollama">Ollama（本地）</SelectOption>
-                <SelectOption value="none">纯规则（不调用 AI）</SelectOption>
+                <SelectOption value="openai">{{ t('guardian.settings_provider_openai') }}</SelectOption>
+                <SelectOption value="ollama">{{ t('guardian.settings_provider_ollama') }}</SelectOption>
+                <SelectOption value="none">{{ t('guardian.settings_provider_none') }}</SelectOption>
               </Select>
             </div>
             <div class="setting-item">
-              <label>API Key</label>
-              <Input v-model:value="aiApiKey" type="password" placeholder="sk-..." />
+              <label>{{ t('guardian.settings_api_key') }}</label>
+              <Input v-model:value="aiApiKey" type="password" :placeholder="t('guardian.settings_api_key_placeholder')" />
             </div>
             <div class="setting-item">
-              <label>模型</label>
-              <Input v-model:value="aiModel" placeholder="gpt-4.1-mini" />
+              <label>{{ t('guardian.settings_model') }}</label>
+              <Input v-model:value="aiModel" :placeholder="t('guardian.settings_model_placeholder')" />
             </div>
             <div class="setting-item">
-              <label>API 地址</label>
-              <Input v-model:value="aiBaseUrl" placeholder="https://api.openai.com/v1" />
+              <label>{{ t('guardian.settings_api_url') }}</label>
+              <Input v-model:value="aiBaseUrl" :placeholder="t('guardian.settings_api_url_placeholder')" />
             </div>
             <div class="setting-item setting-item-row">
-              <label>自动执行低风险操作</label>
+              <label>{{ t('guardian.settings_auto_accept') }}</label>
               <Switch v-model:checked="autoAcceptLowRisk" style="flex-shrink: 0" />
             </div>
             <div class="setting-item">
-              <label>最大连续崩溃次数</label>
+              <label>{{ t('guardian.settings_max_crashes') }}</label>
               <Input v-model:value="maxCrashes" type="number" min="1" max="20" />
             </div>
           </div>
           <div class="settings-actions">
             <Button :loading="testingAI" @click="testAIConnection" :disabled="aiProvider === 'none'" :icon="h(ApiOutlined)">
-              测试 AI 连接
+              {{ t('guardian.settings_btn_test_ai') }}
             </Button>
-            <Button type="primary" @click="saveSettings">保存设置</Button>
+            <Button type="primary" @click="saveSettings">{{ t('guardian.settings_btn_save') }}</Button>
           </div>
           <div v-if="testAIResult" class="test-ai-result">
             <Alert
               :type="testAIResult.success ? 'success' : 'error'"
-              :message="testAIResult.success ? '连接测试通过' : '连接测试失败'"
-              :description="testAIResult.message + (testAIResult.latency ? ` (耗时 ${testAIResult.latency}ms)` : '')"
+              :message="testAIResult.success ? t('guardian.settings_test_success') : t('guardian.settings_test_failed')"
+              :description="testAIResult.message + (testAIResult.latency ? ` (${t('guardian.settings_test_latency', { latency: testAIResult.latency })})` : '')"
               showIcon
               closable
               @close="testAIResult = null"
@@ -678,54 +676,50 @@ onUnmounted(() => {
       </CollapsePanel>
     </Collapse>
 
-
-    <!-- 启动配置对话框 -->
     <Modal v-model:visible="launchModalVisible"
-           title="启动 ServerGuardian"
-           okText="启动"
-           cancelText="取消"
+           :title="t('guardian.launch_title')"
+           :okText="t('guardian.launch_ok')"
+           :cancelText="t('guardian.launch_cancel')"
            @ok="confirmLaunch">
       <div class="launch-form">
         <div class="launch-field">
-          <label class="launch-label">服务端目录 <span class="required">*</span></label>
+          <label class="launch-label">{{ t('guardian.launch_workdir') }} <span class="required">*</span></label>
           <div class="launch-dir-row">
-            <Input v-model:value="launchWorkDir" placeholder="D:/servers/my-server" />
-            <Button @click="openDirPicker" :disabled="true" title="浏览器限制，请直接粘贴路径">
-              浏览
+            <Input v-model:value="launchWorkDir" :placeholder="t('guardian.launch_workdir_placeholder')" />
+            <Button @click="openDirPicker" :disabled="true" :title="t('guardian.browser_path_limit')">
+              {{ t('guardian.launch_browse') }}
             </Button>
           </div>
-          <div class="launch-hint">服务端根目录（包含 start.bat、server.jar 等文件）</div>
+          <div class="launch-hint">{{ t('guardian.launch_workdir_hint') }}</div>
         </div>
         <div class="launch-field">
-          <label class="launch-label">启动命令</label>
-          <Input v-model:value="launchJavaCmd" placeholder="" />
-          <div class="launch-hint">留空则自动识别 start.bat 或 run.bat 中的 Java 命令</div>
-          <div class="launch-hint">一般来说使用DeEarthX-CE生成的服务端运行install.bat以后会生成run.bat</div>
+          <label class="launch-label">{{ t('guardian.launch_cmd') }}</label>
+          <Input v-model:value="launchJavaCmd" :placeholder="t('guardian.launch_cmd_placeholder')" />
+          <div class="launch-hint">{{ t('guardian.launch_cmd_hint1') }}</div>
+          <div class="launch-hint">{{ t('guardian.launch_cmd_hint2') }}</div>
         </div>
         <div class="launch-field">
-          <label class="launch-label">服务端类型</label>
+          <label class="launch-label">{{ t('guardian.launch_server_type') }}</label>
           <Select v-model:value="launchServerType" style="width: 100%">
-            <SelectOption value="forge">Forge</SelectOption>
-            <SelectOption value="neoforge">NeoForge</SelectOption>
-            <SelectOption value="fabric">Fabric</SelectOption>
-            <SelectOption value="vanilla">Vanilla</SelectOption>
+            <SelectOption value="forge">{{ t('guardian.launch_server_type_forge') }}</SelectOption>
+            <SelectOption value="neoforge">{{ t('guardian.launch_server_type_neoforge') }}</SelectOption>
+            <SelectOption value="fabric">{{ t('guardian.launch_server_type_fabric') }}</SelectOption>
+            <SelectOption value="vanilla">{{ t('guardian.launch_server_type_vanilla') }}</SelectOption>
           </Select>
         </div>
       </div>
     </Modal>
 
-    <!-- 主内容区 -->
     <div class="main-content">
-      <!-- 左侧：日志流 -->
       <div class="log-panel">
         <div class="panel-header">
-          <span><ConsoleSqlOutlined /> 实时日志</span>
+          <span><ConsoleSqlOutlined /> {{ t('guardian.log_title') }}</span>
           <div class="panel-actions">
-            <Button size="small" @click="copyLog" :disabled="logLines.length === 0">复制</Button>
-            <Button size="small" @click="exportLog" :disabled="logLines.length === 0">导出日志</Button>
-            <Button size="small" @click="exportFullReport">完整报告</Button>
-            <Button size="small" @click="clearLog">清空</Button>
-            <Tag>{{ logLines.length }} 行</Tag>
+            <Button size="small" @click="copyLog" :disabled="logLines.length === 0">{{ t('guardian.log_copy') }}</Button>
+            <Button size="small" @click="exportLog" :disabled="logLines.length === 0">{{ t('guardian.log_export') }}</Button>
+            <Button size="small" @click="exportFullReport">{{ t('guardian.log_full_report') }}</Button>
+            <Button size="small" @click="clearLog">{{ t('guardian.log_clear') }}</Button>
+            <Tag>{{ t('guardian.log_lines', { count: logLines.length }) }}</Tag>
           </div>
         </div>
         <div class="log-output" ref="logContainer">
@@ -735,37 +729,34 @@ onUnmounted(() => {
             <span class="log-text">{{ log.line }}</span>
           </div>
           <div v-if="logLines.length === 0" class="log-empty">
-            等待日志输出...
+            {{ t('guardian.log_empty') }}
           </div>
         </div>
       </div>
 
-      <!-- 右侧：诊断与操作 -->
       <div class="diagnostic-panel">
-        <!-- 崩溃诊断 -->
-        <Card title="崩溃诊断" size="small" class="diagnostic-card"
+        <Card :title="t('guardian.crash_title')" size="small" class="diagnostic-card"
               v-if="crashDiagnosis">
           <div class="diagnosis-content">
             <Alert type="error" :message="crashDiagnosis.diagnosis" show-icon />
-            <Divider>原因分析</Divider>
+            <Divider>{{ t('guardian.crash_cause_analysis') }}</Divider>
             <ul class="cause-list">
               <li v-for="(cause, i) in crashDiagnosis.causes" :key="i">
                 <BugOutlined /> {{ cause }}
               </li>
             </ul>
             <div class="confidence">
-              置信度: {{ Math.round(crashDiagnosis.confidence * 100) }}%
+              {{ t('guardian.crash_confidence', { percent: Math.round(crashDiagnosis.confidence * 100) }) }}
             </div>
           </div>
         </Card>
 
-        <!-- 待执行操作 -->
-        <Card title="🔧 待执行修复操作" size="small" class="actions-card"
+        <Card :title="`🔧 ${t('guardian.actions_title')}`" size="small" class="actions-card"
               v-if="pendingActions.length > 0">
           <div v-for="action in pendingActions" :key="action.id" class="action-item">
             <div class="action-header">
               <Tag :color="riskColorMap[action.riskLevel] || 'default'">
-                {{ action.riskLevel === 'low' ? '低风险' : action.riskLevel === 'medium' ? '中风险' : '高风险' }}
+                {{ action.riskLevel === 'low' ? t('guardian.actions_risk_low') : action.riskLevel === 'medium' ? t('guardian.actions_risk_medium') : t('guardian.actions_risk_high') }}
               </Tag>
               <Tag>{{ action.type }}</Tag>
             </div>
@@ -773,86 +764,83 @@ onUnmounted(() => {
             <div class="action-reason">{{ action.reason }}</div>
             <div class="action-buttons">
               <Button size="small" type="primary" @click="approveAction(action.id)">
-                <CheckCircleOutlined /> 批准
+                <CheckCircleOutlined /> {{ t('guardian.actions_approve') }}
               </Button>
               <Button size="small" danger @click="rejectAction(action.id)">
-                <CloseCircleOutlined /> 拒绝
+                <CloseCircleOutlined /> {{ t('guardian.actions_reject') }}
               </Button>
             </div>
           </div>
           <div class="action-bulk">
             <Button type="primary" block @click="approveAllActions">
-              <ThunderboltOutlined /> 批准全部安全操作
+              <ThunderboltOutlined /> {{ t('guardian.actions_approve_all') }}
             </Button>
           </div>
         </Card>
 
-        <!-- 确认重启（所有修复操作已执行完毕，等待用户手动确认） -->
         <Card v-if="restartNeeded && pendingActions.length === 0"
-              title="🚀 等待确认重启" size="small"
+              :title="`🚀 ${t('guardian.restart_title')}`" size="small"
               class="restart-card">
           <div class="restart-info">
-            <Alert type="info" show-icon :message="'修复操作已全部执行完毕'" />
-            <div class="restart-hint">请确认是否重新启动服务端以应用修复</div>
+            <Alert type="info" show-icon :message="t('guardian.restart_all_done')" />
+            <div class="restart-hint">{{ t('guardian.restart_hint') }}</div>
           </div>
           <div class="restart-buttons">
             <Button type="primary" size="large" block @click="confirmRestart">
-              <ReloadOutlined /> 确认重启服务端
+              <ReloadOutlined /> {{ t('guardian.restart_btn') }}
             </Button>
           </div>
         </Card>
 
-        <!-- 统计数据 -->
-        <Card title="监控统计" size="small" class="stats-card">
+        <Card :title="t('guardian.stats_title')" size="small" class="stats-card">
           <div v-if="guardianStatus === 'idle' || guardianStatus === 'stopped'" class="stats-placeholder">
             <PlayCircleOutlined />
-            <span>点击「启动」开始统计</span>
+            <span>{{ t('guardian.stats_placeholder') }}</span>
           </div>
           <div v-else class="stats-grid">
             <div class="stat-item">
               <div class="stat-value">{{ stats.crashCount }}</div>
-              <div class="stat-label">崩溃次数</div>
+              <div class="stat-label">{{ t('guardian.stats_crash_count') }}</div>
             </div>
             <div class="stat-item">
               <div class="stat-value">{{ stats.restartCount }}</div>
-              <div class="stat-label">重启次数</div>
+              <div class="stat-label">{{ t('guardian.stats_restart_count') }}</div>
             </div>
             <div class="stat-item">
               <div class="stat-value">{{ stats.maxCrashes }}</div>
-              <div class="stat-label">最大崩溃</div>
+              <div class="stat-label">{{ t('guardian.stats_max_crashes') }}</div>
             </div>
             <div class="stat-item">
               <div class="stat-value">{{ stats.reportsCount }}</div>
-              <div class="stat-label">报告数</div>
+              <div class="stat-label">{{ t('guardian.stats_reports_count') }}</div>
             </div>
           </div>
         </Card>
 
-        <!-- AI 对话记录 -->
-        <Collapse :activeKey="aiConvActiveKey" @change="(keys: string | string[]) => showAIConversation = (Array.isArray(keys) ? keys : [keys]).includes('ai-conv')">
-          <CollapsePanel key="ai-conv" header="AI 对话">
+        <Collapse :activeKey="aiConvActiveKey" @change="(keys) => showAIConversation = (Array.isArray(keys) ? (keys as (string | number)[]).map(String) : [String(keys)]).includes('ai-conv')">
+          <CollapsePanel key="ai-conv" :header="t('guardian.ai_conv_title')">
             <div v-if="aiConversations.length" style="display:flex;justify-content:flex-end;margin-bottom:8px">
-              <Button size="small" @click="resetAIConversations">重置对话</Button>
+              <Button size="small" @click="resetAIConversations">{{ t('guardian.ai_conv_reset') }}</Button>
             </div>
             <div v-if="aiConversations.length === 0" style="color:#999;text-align:center;padding:16px">
-              暂无对话记录<br/>
-              <small>服务端发生崩溃时，AI 会进行分析并记录在此</small>
+              {{ t('guardian.ai_conv_empty') }}<br/>
+              <small>{{ t('guardian.ai_conv_empty_hint') }}</small>
             </div>
             <div v-else class="ai-conv-list">
               <div v-for="conv in [...aiConversations].reverse()" :key="conv.id" class="ai-conv-entry">
                 <div class="conv-header">
                   <Tag :color="conv.type === 'fallback' ? 'orange' : 'blue'">
-                    {{ conv.type === 'diagnosis' ? '诊断' : conv.type === 'test' ? '测试' : '规则回退' }}
+                    {{ conv.type === 'diagnosis' ? t('guardian.ai_conv_type_diagnosis') : conv.type === 'test' ? t('guardian.ai_conv_type_test') : t('guardian.ai_conv_type_fallback') }}
                   </Tag>
                   <span class="conv-time">{{ formatTime(conv.timestamp) }}</span>
                   <span v-if="conv.latencyMs" class="conv-latency">{{ conv.latencyMs }}ms</span>
                 </div>
                 <div class="conv-bubble conv-bubble-sent">
-                  <div class="bubble-label">→ 发送给 AI</div>
+                  <div class="bubble-label">{{ t('guardian.ai_conv_sent') }}</div>
                   <pre class="conv-code">{{ conv.prompt.slice(0, 600) }}{{ conv.prompt.length > 600 ? '...' : '' }}</pre>
                 </div>
                 <div class="conv-bubble conv-bubble-received">
-                  <div class="bubble-label">← AI 回复</div>
+                  <div class="bubble-label">{{ t('guardian.ai_conv_received') }}</div>
                   <div class="conv-diagnosis" v-if="conv.diagnosis">
                     <div class="diag-text">{{ conv.diagnosis.diagnosis }}</div>
                     <div v-if="conv.diagnosis.causes?.length" class="diag-causes">
@@ -862,7 +850,7 @@ onUnmounted(() => {
                   <pre class="conv-code">{{ conv.rawResponse.slice(0, 500) }}{{ conv.rawResponse.length > 500 ? '...' : '' }}</pre>
                 </div>
                 <div v-if="conv.diagnosis?.actions?.length" class="conv-tools">
-                  <div class="bubble-label">计划执行的修复操作</div>
+                  <div class="bubble-label">{{ t('guardian.ai_conv_tools') }}</div>
                   <div v-for="(act, ai) in conv.diagnosis.actions" :key="ai" class="conv-tool-item">
                     <Tag :color="act.type === 'remove_mod' ? 'red' : act.type === 'edit_config' ? 'green' : 'orange'">
                       {{ act.type }}
@@ -928,7 +916,6 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-/* 确保圆角按钮图标居中 */
 .status-right :deep(.ant-btn.ant-btn-circle) {
   display: inline-flex;
   align-items: center;
@@ -1129,7 +1116,6 @@ onUnmounted(() => {
   margin-top: 8px;
 }
 
-/* 确认重启卡片 */
 .restart-card {
   border: 2px solid #1890ff;
 }
@@ -1171,7 +1157,6 @@ onUnmounted(() => {
   margin-top: 2px;
 }
 
-/* 启动配置表单 */
 .launch-form {
   display: flex;
   flex-direction: column;
@@ -1202,7 +1187,6 @@ onUnmounted(() => {
   color: #999;
 }
 
-/* AI 对话面板 */
 .ai-conv-list {
   max-height: 500px;
   overflow-y: auto;

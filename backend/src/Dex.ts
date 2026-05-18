@@ -1,26 +1,29 @@
 import fs from "node:fs";
 import p from "node:path";
-import websocket, { WebSocketServer } from "ws";
 import { pipeline } from "node:stream/promises";
 import { platform, what_platform } from "./platform/index.js";
 import { ModFilterService } from "./dearth/index.js";
 import { dinstall, mlsetup } from "./modloader/index.js";
 import { Config } from "./utils/config.js";
 import { execPromise, getAppDir } from "./utils/utils.js";
-import { MessageWS } from "./utils/ws.js";
+import { MessageWS, sendWS } from "./utils/ws.js";
 import { logger } from "./utils/logger.js";
 import { yauzl_promise } from "./utils/ziplib.js";
 import yauzl from "yauzl";
 import archiver from "archiver";
+import type { Server as SocketIOServer } from "socket.io";
+import type { Socket } from "socket.io";
 
 export class Dex {
-  wsx!: WebSocketServer;
+  io!: SocketIOServer;
   message!: MessageWS;
   
-  constructor(ws: WebSocketServer) {
-    this.wsx = ws;
-    this.wsx.on("connection", (e) => {
-      this.message = new MessageWS(e);
+  constructor(io: SocketIOServer) {
+    this.io = io;
+    
+    this.io.on("connection", (socket: Socket) => {
+      logger.info(`Dex Socket.IO 客户端连接: ${socket.id}`);
+      this.message = new MessageWS(socket);
     });
   }
 
@@ -31,7 +34,9 @@ export class Dex {
     } catch (e) {
       const err = e as Error;
       logger.error("主流程执行失败", err);
-      this.message.handleError(err);
+      if (this.message) {
+        this.message.handleError(err);
+      }
     }
   }
 
@@ -42,7 +47,9 @@ export class Dex {
     
     if (!contain || !info) {
       logger.error("整合包信息为空");
-      this.message.handleError(new Error("该整合包似乎不是有效的整合包。"));
+      if (this.message) {
+        this.message.handleError(new Error("该整合包似乎不是有效的整合包。"));
+      }
       return;
     }
     
@@ -66,13 +73,17 @@ export class Dex {
     ]).catch(e => {
       logger.error("并行任务执行异常", e);
     });
-    this.message.statusChange();
+    if (this.message) {
+      this.message.statusChange();
+    }
   }
 
   private async filterMods(unpath: string, mpname: string) {
     const config = Config.getConfig();
     await new ModFilterService(p.join(unpath, "mods"), p.join(getAppDir(), ".rubbish", mpname), config.filter, this.message).filter();
-    this.message.statusChange();
+    if (this.message) {
+      this.message.statusChange();
+    }
   }
 
   private async installModLoader(plat: string | undefined, info: any, unpath: string, isServerMode: boolean, template?: string) {
@@ -101,10 +112,12 @@ export class Dex {
     const latest = Date.now();
     const duration = latest - startTime;
     
-    if (isServerMode) {
-      this.message.serverInstallComplete(unpath, duration);
-    } else {
-      this.message.finish(startTime, latest);
+    if (this.message) {
+      if (isServerMode) {
+        this.message.serverInstallComplete(unpath, duration);
+      } else {
+        this.message.finish(startTime, latest);
+      }
     }
 
     if (!isServerMode && config.autoZip) {
@@ -262,21 +275,27 @@ export class Dex {
 
         if (!entry.fileName.startsWith("overrides/")) {
           logger.info("跳过非 overrides 文件", entry.fileName);
-          this.message.unzip(entry.fileName, zip.length, index);
+          if (this.message) {
+            this.message.unzip(entry.fileName, zip.length, index);
+          }
           index++;
           continue;
         }
 
         if (entry.fileName === "overrides/") {
           logger.info("跳过 overrides 目录", entry.fileName);
-          this.message.unzip(entry.fileName, zip.length, index);
+          if (this.message) {
+            this.message.unzip(entry.fileName, zip.length, index);
+          }
           index++;
           continue;
         }
 
         if (this._ublack(entry.fileName)) {
           logger.info("跳过黑名单文件", entry.fileName);
-          this.message.unzip(entry.fileName, zip.length, index);
+          if (this.message) {
+            this.message.unzip(entry.fileName, zip.length, index);
+          }
           index++;
           continue;
         }
@@ -301,7 +320,9 @@ export class Dex {
             await pipeline(stream, write);
           }
         }
-        this.message.unzip(entry.fileName, zip.length, index);
+        if (this.message) {
+          this.message.unzip(entry.fileName, zip.length, index);
+        }
         index++;
       }
       logger.info("解压流程完成", { 实例名称: instancename, 总文件数: zip.length });
@@ -340,7 +361,9 @@ export class Dex {
 
       output.on('close', () => {
         logger.info(`打包成功: ${outputPath} (${archive.pointer()} 字节)`);
-        this.message.info(`服务端已打包: ${mpname}.zip`);
+        if (this.message) {
+          this.message.info(`服务端已打包: ${mpname}.zip`);
+        }
         resolve();
       });
 

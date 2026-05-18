@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { message, notification } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { ErrorCode, createErrorInfo } from '../utils/errorCodes';
+import { getSocketIO, disconnectSocket, on, off, isConnected } from '../utils/socket';
 
 const { t } = useI18n();
 
@@ -24,7 +25,6 @@ const currentStep = ref(0);
 const startTime = ref<number>(0);
 const javaAvailable = ref(true);
 const abortController = ref<AbortController | null>(null);
-const ws = ref<WebSocket | null>(null);
 
 interface ProgressStatus {
     status: 'active' | 'success' | 'exception' | 'normal';
@@ -39,6 +39,7 @@ interface ProgressStatus {
 const uploadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const unzipProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
 const downloadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
+const downloadDescription = ref('');
 const serverInstallProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const filterModsProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 
@@ -69,21 +70,17 @@ const filterModsInfo = ref({
 });
 
 function resetState() {
-    // 取消当前请求
     if (abortController.value) {
         abortController.value.abort();
         abortController.value = null;
     }
     
-    // 关闭WebSocket连接
-    if (ws.value) {
-        ws.value.close();
-        ws.value = null;
-    }
+    disconnectSocket();
     
     uploadProgress.value = { status: 'active', percent: 0, display: false };
     unzipProgress.value = { status: 'active', percent: 0, display: true };
     downloadProgress.value = { status: 'active', percent: 0, display: true };
+    downloadDescription.value = '';
     serverInstallProgress.value = { status: 'active', percent: 0, display: false };
     filterModsProgress.value = { status: 'active', percent: 0, display: false };
     currentStep.value = 0;
@@ -115,7 +112,6 @@ async function runDeEarthX(file: File) {
         uploadProgress.value = { status: 'active', percent: 0, display: true };
         startTime.value = Date.now();
         
-        // 创建新的AbortController
         abortController.value = new AbortController();
 
         const response = await fetch(url, {
@@ -135,7 +131,7 @@ async function runDeEarthX(file: File) {
         }, 2000);
 
         message.success(t('home.task_connecting'));
-        setupWebSocket();
+        setupSocketIO();
     } catch (error: any) {
         if (error.name !== 'AbortError') {
             console.error('请求失败:', error);
@@ -146,78 +142,93 @@ async function runDeEarthX(file: File) {
     }
 }
 
-function setupWebSocket() {
+function setupSocketIO() {
     message.loading(t('home.ws_connecting'));
-    const wsHost = import.meta.env.VITE_WS_HOST || 'localhost';
-    const wsPort = import.meta.env.VITE_WS_PORT || '37019';
-    ws.value = new WebSocket(`ws://${wsHost}:${wsPort}/`);
+    
+    const socket = getSocketIO();
 
-    ws.value.addEventListener('open', () => {
+    socket.on('connect', () => {
         message.success(t('home.ws_connected'));
     });
 
-    ws.value.addEventListener('message', (event) => {
+    socket.on('error', (data: any) => {
         try {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'error') {
-                handleError(data.message);
-            } else if (data.type === 'info') {
-                message.info(data.message);
-            } else if (data.status) {
-                switch (data.status) {
-                    case 'error':
-                        handleError(data.result);
-                        break;
-                    case 'changed':
-                        currentStep.value++;
-                        emit('step-change', currentStep.value);
-                        break;
-                    case 'unzip':
-                        updateUnzipProgress(data.result);
-                        break;
-                    case 'downloading':
-                        updateDownloadProgress(data.result);
-                        break;
-                    case 'finish':
-                        handleFinish(data.result);
-                        break;
-                    case 'server_install_start':
-                        handleServerInstallStart(data.result);
-                        break;
-                    case 'server_install_step':
-                        handleServerInstallStep(data.result);
-                        break;
-                    case 'server_install_progress':
-                        handleServerInstallProgress(data.result);
-                        break;
-                    case 'server_install_complete':
-                        handleServerInstallComplete(data.result);
-                        break;
-                    case 'server_install_error':
-                        handleServerInstallError(data.result);
-                        break;
-                    case 'filter_mods_start':
-                        handleFilterModsStart(data.result);
-                        break;
-                    case 'filter_mods_progress':
-                        handleFilterModsProgress(data.result);
-                        break;
-                    case 'filter_mods_complete':
-                        handleFilterModsComplete(data.result);
-                        break;
-                    case 'filter_mods_error':
-                        handleFilterModsError(data.result);
-                        break;
-                }
-            }
-        } catch (error) {
-            console.error('解析WebSocket消息失败:', error);
-            notification.error({ message: t('common.error'), description: t('home.parse_error') });
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            handleError(parsed.message);
+        } catch {
+            handleError(data);
         }
     });
 
-    ws.value.addEventListener('error', () => {
+    socket.on('info', (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            if (parsed.message) {
+                message.info(parsed.message);
+            }
+        } catch {
+            message.info(data);
+        }
+    });
+
+    socket.on('changed', () => {
+        currentStep.value++;
+        emit('step-change', currentStep.value);
+    });
+
+    socket.on('unzip', (data: any) => {
+        updateUnzipProgress(data);
+    });
+
+    socket.on('downloading', (data: any) => {
+        updateDownloadProgress(data);
+    });
+
+    socket.on('finish', (data: any) => {
+        handleFinish(data);
+    });
+
+    socket.on('server_install_start', (data: any) => {
+        handleServerInstallStart(data);
+    });
+
+    socket.on('server_install_step', (data: any) => {
+        handleServerInstallStep(data);
+    });
+
+    socket.on('server_install_progress', (data: any) => {
+        handleServerInstallProgress(data);
+    });
+
+    socket.on('server_install_complete', (data: any) => {
+        handleServerInstallComplete(data);
+    });
+
+    socket.on('server_install_error', (data: any) => {
+        handleServerInstallError(data);
+    });
+
+    socket.on('filter_mods_start', (data: any) => {
+        handleFilterModsStart(data);
+    });
+
+    socket.on('filter_mods_progress', (data: any) => {
+        handleFilterModsProgress(data);
+    });
+
+    socket.on('filter_mods_complete', (data: any) => {
+        handleFilterModsComplete(data);
+    });
+
+    socket.on('filter_mods_error', (data: any) => {
+        handleFilterModsError(data);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Socket.IO 连接关闭');
+    });
+
+    socket.on('connect_error', (error: Error) => {
         notification.error({
             message: t('home.ws_error_title'),
             description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
@@ -225,14 +236,8 @@ function setupWebSocket() {
         });
         resetState();
     });
-
-    ws.value.addEventListener('close', () => {
-        console.log('WebSocket连接关闭');
-        ws.value = null;
-    });
 }
 
-// 组件卸载时清理资源
 onUnmounted(() => {
     resetState();
 });
@@ -242,7 +247,7 @@ function handleError(result: any) {
         javaAvailable.value = false;
         const errorInfo = createErrorInfo(ErrorCode.JAVA_NOT_FOUND);
         notification.error({
-            message: `${t('home.java_error_title')} (错误码: ${errorInfo.code})`,
+            message: `${t('home.java_error_title')} (${errorInfo.code})`,
             description: `${t('home.java_error_desc')}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
             duration: 0
         });
@@ -272,7 +277,7 @@ function handleError(result: any) {
         const fullDescription = `${errorInfo.message}: ${errorInfo.details}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`;
 
         notification.error({
-            message: `${errorInfo.message} (错误码: ${errorInfo.code})`,
+            message: `${errorInfo.message} (${errorInfo.code})`,
             description: fullDescription,
             duration: 0
         });
@@ -281,7 +286,7 @@ function handleError(result: any) {
     } else {
         const errorInfo = createErrorInfo(ErrorCode.UNKNOWN_ERROR);
         notification.error({
-            message: `${t('home.unknown_error_title')} (错误码: ${errorInfo.code})`,
+            message: `${t('home.unknown_error_title')} (${errorInfo.code})`,
             description: `${t('home.unknown_error_desc')}\n\n${t('home.suggestions')}:\n${errorInfo.suggestions?.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
             duration: 0
         });
@@ -300,8 +305,11 @@ function updateUnzipProgress(result: { current: number; total: number }) {
     updateWindowProgress();
 }
 
-function updateDownloadProgress(result: { index: number; total: number }) {
+function updateDownloadProgress(result: { index: number; total: number; name?: string }) {
     downloadProgress.value.percent = Math.round((result.index / result.total) * 100);
+    if (result.name) {
+        downloadDescription.value = result.name;
+    }
     if (downloadProgress.value.percent === 100) {
         downloadProgress.value.status = 'success';
         setTimeout(() => {
@@ -316,6 +324,7 @@ function updateWindowProgress() {
         uploadProgress: uploadProgress.value,
         unzipProgress: unzipProgress.value,
         downloadProgress: downloadProgress.value,
+        downloadDescription: downloadDescription.value,
         serverInstallProgress: serverInstallProgress.value,
         filterModsProgress: filterModsProgress.value,
         serverInstallInfo: serverInstallInfo.value,

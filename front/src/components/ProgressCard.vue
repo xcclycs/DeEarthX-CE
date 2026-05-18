@@ -17,6 +17,7 @@ interface ProgressStatus {
 const uploadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const unzipProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
 const downloadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
+const downloadDescription = ref('');
 const serverInstallProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const filterModsProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 
@@ -75,6 +76,7 @@ watch(() => window.progressData, (newData) => {
         if (newData.uploadProgress) uploadProgress.value = newData.uploadProgress;
         if (newData.unzipProgress) unzipProgress.value = newData.unzipProgress;
         if (newData.downloadProgress) downloadProgress.value = newData.downloadProgress;
+        if (newData.downloadDescription !== undefined) downloadDescription.value = newData.downloadDescription;
         if (newData.serverInstallProgress) serverInstallProgress.value = newData.serverInstallProgress;
         if (newData.filterModsProgress) filterModsProgress.value = newData.filterModsProgress;
         if (newData.serverInstallInfo) serverInstallInfo.value = newData.serverInstallInfo;
@@ -106,6 +108,9 @@ watch(() => window.progressData, (newData) => {
             <div v-if="downloadProgress.display" class="tw:mb-4">
                 <h1 class="tw:text-sm">{{ t('home.download_progress') }}</h1>
                 <a-progress :percent="downloadProgress.percent" :status="downloadProgress.status" size="small" />
+                <div v-if="downloadDescription" class="tw:text-xs tw:text-gray-400 tw:mt-1 tw:truncate">
+                    {{ downloadDescription }}
+                </div>
             </div>
             <div v-if="serverInstallProgress.display" class="tw:mb-4">
                 <h1 class="tw:text-sm">{{ t('home.server_install_progress') }}</h1>

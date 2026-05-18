@@ -47,12 +47,6 @@
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
       },
-      "nsis": {
-        "languages": ["SimpChinese","English"],
-        "displayLanguageSelector": true,
-        "installMode": "perMachine",
-        "author": "xcclyc"
-      },
       "wix": {
         "language": "zh-CN"
       }

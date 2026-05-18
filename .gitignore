@@ -34,4 +34,4 @@ instance
 templates/
 package-lock.json
 .trae/
-.workuddy/
+.workbuddy/

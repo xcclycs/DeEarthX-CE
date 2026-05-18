@@ -27,23 +27,66 @@ function getAppDir(): string {
 }
 
 const logsDir = path.join(getAppDir(), "logs");
+const LOG_BUFFER_SIZE = 50;
+const LOG_FLUSH_INTERVAL = 1000;
+const LOG_FILE_DATE = new Date().toISOString().split('T')[0];
+
+let logBuffer: string[] = [];
+let flushTimer: NodeJS.Timeout | null = null;
+let logFilePath = path.join(logsDir, `deearthx-${LOG_FILE_DATE}.log`);
+let currentLogDate = LOG_FILE_DATE;
 
 const ensureLogsDir = () => {
   if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+    try {
+      fs.mkdirSync(logsDir, { recursive: true });
+    } catch (err) {
+      console.error("创建日志目录失败:", err);
+    }
   }
 };
 
-const generateLogFileName = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const timestamp = Date.now();
-  return `${year}-${month}-${day}-${timestamp}.log`;
+const updateLogFilePath = () => {
+  const today = new Date().toISOString().split('T')[0];
+  if (today !== currentLogDate) {
+    currentLogDate = today;
+    logFilePath = path.join(logsDir, `deearthx-${currentLogDate}.log`);
+  }
 };
 
-const logFilePath = path.join(logsDir, generateLogFileName());
+const flushBuffer = async () => {
+  if (logBuffer.length === 0) return;
+  
+  const bufferToWrite = [...logBuffer];
+  logBuffer = [];
+  
+  try {
+    updateLogFilePath();
+    await fs.promises.appendFile(logFilePath, bufferToWrite.join(''), "utf-8");
+  } catch (err) {
+    console.error("写入日志文件失败:", err);
+    logBuffer.unshift(...bufferToWrite);
+  }
+};
+
+const startFlushTimer = () => {
+  if (flushTimer) return;
+  
+  flushTimer = setInterval(() => {
+    if (logBuffer.length > 0) {
+      flushBuffer();
+    }
+  }, LOG_FLUSH_INTERVAL);
+  
+  flushTimer.unref();
+};
+
+const addToBuffer = (logLine: string) => {
+  logBuffer.push(logLine);
+  if (logBuffer.length >= LOG_BUFFER_SIZE) {
+    flushBuffer();
+  }
+};
 
 const writeToFile = (level: LogLevel, message: string, meta?: any) => {
   const timestamp = formatTime();
@@ -59,10 +102,8 @@ const writeToFile = (level: LogLevel, message: string, meta?: any) => {
     }
   }
   const logLine = `${timestamp} [${level.toUpperCase()}] ${message}${metaStr}\n`;
-  fs.appendFileSync(logFilePath, logLine, "utf-8");
+  addToBuffer(logLine);
 };
-
-ensureLogsDir();
 
 const log = (level: LogLevel, message: string, meta?: any) => {
   const timestamp = formatTime();
@@ -88,6 +129,26 @@ const log = (level: LogLevel, message: string, meta?: any) => {
   
   console.log(`${timestamp} ${levelTag} ${msg}${metaStr}`);
 };
+
+process.on('beforeExit', async () => {
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  await flushBuffer();
+});
+
+process.on('SIGINT', async () => {
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  await flushBuffer();
+  process.exit(0);
+});
+
+ensureLogsDir();
+startFlushTimer();
 
 export const logger: Logger = {
   debug: (msg, meta) => log("debug", msg, meta),

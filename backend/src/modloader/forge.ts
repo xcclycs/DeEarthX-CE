@@ -167,7 +167,7 @@ export class Forge {
     }
   }
 
-  private async wshell() {
+  protected async wshell() {
     const config = Config.getConfig();
     const javaCmd = config.javaPath || 'java';
     const cmd = `${javaCmd} -jar forge-${this.minecraft}-${this.loaderVersion}.jar`;

@@ -114,8 +114,10 @@ export async function dinstall(ml: string, mcv: string, mlv: string, path: strin
   await modloader(ml, mcv, mlv, path).installer();
   
   let cmd = '';
-  if (ml === 'forge' || ml === 'neoforge') {
+  if (ml === 'forge') {
     cmd = `java -jar forge-${mcv}-${mlv}-installer.jar --installServer`;
+  } else if (ml === 'neoforge') {
+    cmd = `java -jar neoforge-${mcv}-${mlv}-installer.jar --installServer`;
   } else if (ml === 'fabric' || ml === 'fabric-loader') {
     await fs.promises.writeFile(`${path}/run.bat`,`@echo off\njava -jar fabric-server-launch.jar\n`)
     await fs.promises.writeFile(`${path}/run.sh`,`#!/bin/bash\njava -jar fabric-server-launch.jar\n`)

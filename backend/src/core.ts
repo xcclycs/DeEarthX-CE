@@ -1,8 +1,7 @@
 import express, { Application } from "express";
 import multer from "multer";
 import cors from "cors"
-import websocket, { WebSocketServer } from "ws"
-import { createServer, Server } from "node:http";
+import { createServer, Server as HTTPServer } from "node:http";
 import { Config, IConfig } from "./utils/config.js";
 import { Dex } from "./Dex.js";
 import { logger } from "./utils/logger.js";
@@ -10,14 +9,16 @@ import { checkJava, JavaCheckResult, detectJavaPaths } from "./utils/utils.js";
 import { Galaxy } from "./galaxy.js";
 import { GuardianController } from "./guardian/index.js";
 import type { IGuardianConfig } from "./guardian/types.js";
+import { initializeIO, getIO, getCurrentSocket, sendToSocket, MessageIO } from "./utils/socket.io.js";
+import type { Socket, Server as SocketIOServer } from "socket.io";
 import fs from "node:fs";
 
 export class Core {
     private config: IConfig;
     private readonly app: Application;
-    private readonly server: Server;
-    public ws!: WebSocketServer;
-    private wsx!: websocket;
+    private readonly server: HTTPServer;
+    public io: SocketIOServer;
+    private currentSocket: Socket | null = null;
     private readonly upload: multer.Multer;
     dex: Dex;
     galaxy: Galaxy;
@@ -27,13 +28,11 @@ export class Core {
         this.config = config
         this.app = express();
         this.server = createServer(this.app);
-        this.ws = new WebSocketServer({ server: this.server })
-        this.ws.on("connection",(e)=>{
-            this.wsx = e
-            this.setupGuardianWSHandler(e);
-        })
-        this.dex = new Dex(this.ws)
-        this.galaxy = new Galaxy()
+        this.io = initializeIO(this.server);
+        
+        this.setupSocketIOHandlers();
+        this.dex = new Dex(this.io);
+        this.galaxy = new Galaxy();
         this.initGuardian();
         const storage = multer.memoryStorage();
         this.upload = multer({ 
@@ -45,6 +44,25 @@ export class Core {
         });
     }
 
+    private setupSocketIOHandlers() {
+        const io = getIO();
+        if (!io) return;
+
+        io.on("connection", (socket: Socket) => {
+            this.currentSocket = socket;
+            logger.info(`Socket.IO 客户端连接: ${socket.id}`);
+            
+            this.setupGuardianIOHandler(socket);
+
+            socket.on("disconnect", (reason) => {
+                logger.info(`Socket.IO 客户端断开: ${socket.id}, 原因: ${reason}`);
+                if (this.currentSocket?.id === socket.id) {
+                    this.currentSocket = null;
+                }
+            });
+        });
+    }
+
     private async javachecker() {
         try {
             const result: JavaCheckResult = await checkJava();
@@ -52,8 +70,8 @@ export class Core {
             if (result.exists && result.version) {
                 logger.info(`检测到 Java: ${result.version.fullVersion} (${result.version.vendor})`);
                 
-                if (this.wsx) {
-                    this.wsx.send(JSON.stringify({
+                if (this.currentSocket) {
+                    this.currentSocket.emit("info", JSON.stringify({
                         type: "info",
                         message: `检测到 Java: ${result.version.fullVersion} (${result.version.vendor})`,
                         data: result.version
@@ -62,8 +80,8 @@ export class Core {
             } else {
                 logger.error("Java 检查失败", result.error);
                 
-                if (this.wsx) {
-                    this.wsx.send(JSON.stringify({
+                if (this.currentSocket) {
+                    this.currentSocket.emit("error", JSON.stringify({
                         type: "error",
                         message: result.error || "未找到 Java 或版本检查失败",
                         data: result
@@ -73,8 +91,8 @@ export class Core {
         } catch (error) {
             logger.error("Java 检查异常", error as Error);
             
-            if (this.wsx) {
-                this.wsx.send(JSON.stringify({
+            if (this.currentSocket) {
+                this.currentSocket.emit("error", JSON.stringify({
                     type: "error",
                     message: "Java 检查遇到异常"
                 }));
@@ -99,7 +117,6 @@ export class Core {
         this.app.use(express.json({ limit: '2gb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '2gb' }));
         
-        // 全局错误处理中间件
         this.app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
             logger.error("全局错误捕获", err);
             res.status(err.status || 500).json({
@@ -111,7 +128,6 @@ export class Core {
     }
 
     private setupHealthRoutes() {
-        // 健康检查路由（ping 接口）
         this.app.get('/', (req, res) => {
             const pingTime = new Date().toISOString();
             logger.debug("收到 Ping 请求", { time: pingTime, ip: req.ip });
@@ -124,7 +140,6 @@ export class Core {
             });
         });
         
-        // 版本信息路由
         this.app.get('/version', (req, res) => {
             logger.debug("请求版本信息", { ip: req.ip });
             res.json({
@@ -137,7 +152,6 @@ export class Core {
     }
 
     private setupTaskRoutes() {
-        // 启动任务路由
         this.app.post("/start", this.upload.single("file"), (req, res) => {
             try {
                 if (!req.file) {
@@ -147,7 +161,6 @@ export class Core {
                     return res.status(400).json({ status: 400, message: "缺少 mode 参数" });
                 }
                 
-                // 文件类型检查
                 const allowedExtensions = ['.zip', '.mrpack'];
                 const fileExtension = req.file.originalname.toLowerCase().substring(req.file.originalname.lastIndexOf('.'));
                 if (!allowedExtensions.includes(fileExtension)) {
@@ -158,7 +171,6 @@ export class Core {
                 const template = req.query.template as string || "";
                 logger.info("正在启动任务", { 是否服务端模式: isServerMode, 文件名: req.file.originalname, 文件大小: req.file.size, 模板: template || "官方模组加载器" });
                 
-                // 非阻塞执行主要任务
                 this.dex.Main(req.file.buffer, isServerMode, req.file.originalname, template).catch(err => {
                     logger.error("任务执行失败", err);
                 });
@@ -173,7 +185,6 @@ export class Core {
     }
 
     private setupConfigRoutes() {
-        // 获取配置路由
         this.app.get('/config/get', (req, res) => {
             try {
                 this.config = Config.getConfig();
@@ -185,7 +196,6 @@ export class Core {
             }
         });
 
-        // 更新配置路由
         this.app.post('/config/post', (req, res) => {
             try {
                 Config.writeConfig(req.body);
@@ -202,7 +212,6 @@ export class Core {
     }
 
     private setupModCheckRoutes() {
-        // 模组检查路由 - 通过路径检查
         this.app.get('/modcheck', async (req, res) => {
             try {
                 const modsPath = req.query.path as string;
@@ -222,9 +231,6 @@ export class Core {
             }
         });
 
-
-
-        // 模组检查路由 - 通过文件夹路径和整合包名字检查
         this.app.post('/modcheck/folder', async (req, res) => {
             try {
                 const { folderPath, bundleName } = req.body;
@@ -263,7 +269,6 @@ export class Core {
     }
 
     private setupJavaRoutes() {
-        // 检查Java版本
         this.app.get('/java/check', async (req, res) => {
             try {
                 const javaPath = req.query.path as string;
@@ -280,7 +285,6 @@ export class Core {
             }
         });
 
-        // 自动检测Java路径
         this.app.get('/java/detect', async (req, res) => {
             try {
                 const paths = await detectJavaPaths();
@@ -298,7 +302,6 @@ export class Core {
     }
 
     private setupTemplateRoutes() {
-        // 获取模板列表
         this.app.get('/templates', async (req, res) => {
             try {
                 const templateModule = await import('./template/index.js');
@@ -317,7 +320,6 @@ export class Core {
             }
         });
 
-        // 创建模板
         this.app.post('/templates', async (req, res) => {
             try {
                 const { name, version, description, author } = req.body;
@@ -354,7 +356,6 @@ export class Core {
             }
         });
 
-        // 删除模板
         this.app.delete('/templates/:id', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -380,7 +381,6 @@ export class Core {
             }
         });
 
-        // 修改模板信息
         this.app.put('/templates/:id', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -414,7 +414,6 @@ export class Core {
             }
         });
 
-        // 打开模板文件夹
         this.app.get('/templates/:id/path', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -451,7 +450,6 @@ export class Core {
             }
         });
 
-        // 导出模板
         this.app.get('/templates/:id/export', async (req, res) => {
             try {
                 const { id } = req.params;
@@ -459,18 +457,14 @@ export class Core {
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
-                // 生成临时文件路径
                 const os = await import('os');
                 const path = await import('path');
                 const tempDir = os.tmpdir();
                 const outputPath = path.join(tempDir, `template-${id}.zip`);
                 
-                // 导出模板
                 await templateManager.exportTemplate(id, outputPath);
                 
-                // 发送文件
                 res.download(outputPath, `template-${id}.zip`, (err) => {
-                    // 下载完成后删除临时文件
                     fs.unlink(outputPath, () => {});
                     if (err) {
                         logger.error(`导出模板失败: ${err.message}`);
@@ -484,14 +478,12 @@ export class Core {
             }
         });
 
-        // 导入模板
         this.app.post('/templates/import', this.upload.single('file'), async (req, res) => {
             try {
                 if (!req.file) {
                     return res.status(400).json({ status: 400, message: "未上传文件" });
                 }
                 
-                // 文件类型检查
                 const fileExtension = req.file.originalname.toLowerCase().substring(req.file.originalname.lastIndexOf('.'));
                 if (fileExtension !== '.zip') {
                     return res.status(400).json({ status: 400, message: "只支持 .zip 文件" });
@@ -501,7 +493,6 @@ export class Core {
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
-                // 导入模板
                 const templateId = await templateManager.importTemplate(req.file.buffer);
                 
                 res.json({
@@ -516,59 +507,46 @@ export class Core {
             }
         });
 
-        // 存储SSE连接
         const sseConnections = new Map();
-        
-        // 存储下载状态
         const downloadStates = new Map();
         
-        // 从URL安装模板 - POST请求启动下载
         this.app.post('/templates/install-from-url', async (req, res) => {
+            const { url: requestUrl, requestId, resumeFrom = 0 } = req.body;
+            
             try {
-                const { url, requestId, resumeFrom = 0 } = req.body;
-                
-                if (!url) {
+                if (!requestUrl) {
                     return res.status(400).json({ status: 400, message: "缺少 url 参数" });
                 }
                 
-                // 下载文件并流式处理
                 const { default: got } = await import('got');
-                const { createWriteStream, readFileSync, statSync, unlinkSync } = await import('fs');
+                const { createWriteStream, readFileSync, unlinkSync } = await import('fs');
                 const { tmpdir } = await import('os');
                 const { join } = await import('path');
                 
-                // 创建临时文件
                 const tempFilePath = join(tmpdir(), `template-${Date.now()}.zip`);
                 const writeStream = createWriteStream(tempFilePath, { 
-                    flags: resumeFrom > 0 ? 'a' : 'w' // 支持断点续传
+                    flags: resumeFrom > 0 ? 'a' : 'w'
                 });
                 
-                // 构建请求选项
                 const requestOptions = {
                     headers: {} as Record<string, string>
                 };
                 
-                // 如果是续传，设置Range头
                 if (resumeFrom > 0) {
                     requestOptions.headers['Range'] = `bytes=${resumeFrom}-`;
                 }
                 
-                // 流式下载（支持分块）
-                const request = await got.stream(url, requestOptions);
+                const request = await got.stream(requestUrl, requestOptions);
                 
                 let totalSize = 0;
                 let downloadedSize = resumeFrom;
                 
-                // 获取文件大小（如果可用）
                 request.on('response', (response) => {
-                    // 检查是否支持分块下载
                     const acceptRanges = response.headers['accept-ranges'];
                     console.log(`服务器支持分块下载: ${acceptRanges}`);
                     
-                    // 获取文件大小
                     let contentLength = response.headers['content-length'];
                     if (!contentLength) {
-                        // 如果没有content-length，尝试从content-range获取
                         const contentRange = response.headers['content-range'];
                         if (contentRange) {
                             const matches = contentRange.match(/bytes \d+-\d+\/(\d+)/);
@@ -580,7 +558,6 @@ export class Core {
                     
                     if (contentLength) {
                         totalSize = parseInt(contentLength);
-                        // 发送初始化信息，包含文件大小
                         if (sseConnections.has(requestId)) {
                             const sseRes = sseConnections.get(requestId);
                             sseRes.write(`data: ${JSON.stringify({ 
@@ -592,14 +569,11 @@ export class Core {
                     }
                 });
                 
-                // 监听数据传输，计算进度
-                request.on('data', (chunk) => {
+                request.on('data', (chunk: Buffer) => {
                     downloadedSize += chunk.length;
                     if (totalSize > 0) {
                         const progress = Math.round((downloadedSize / totalSize) * 100);
-                        // 向后端日志输出进度
                         console.log(`下载进度: ${progress}%`);
-                        // 发送进度信息到SSE连接
                         if (sseConnections.has(requestId)) {
                             const sseRes = sseConnections.get(requestId);
                             sseRes.write(`data: ${JSON.stringify({ 
@@ -610,7 +584,6 @@ export class Core {
                             })}\n\n`);
                         }
                     } else {
-                        // 无法计算总大小时，发送假进度
                         const progress = Math.min(90, Math.round((downloadedSize / 1024 / 1024) * 10));
                         if (sseConnections.has(requestId)) {
                             const sseRes = sseConnections.get(requestId);
@@ -623,27 +596,21 @@ export class Core {
                     }
                 });
                 
-                // 管道到临时文件
                 await new Promise((resolve, reject) => {
                     request.pipe(writeStream)
                         .on('finish', resolve)
                         .on('error', reject);
                 });
                 
-                // 读取临时文件
                 const buffer = readFileSync(tempFilePath);
-                
-                // 清理临时文件
                 unlinkSync(tempFilePath);
                 
-                // 导入模板
                 const templateModule = await import('./template/index.js');
                 const TemplateManager = (templateModule as any).TemplateManager;
                 const templateManager = new TemplateManager();
                 
                 const templateId = await templateManager.importTemplate(buffer);
                 
-                // 发送完成响应到SSE连接
                 if (sseConnections.has(requestId)) {
                     const sseRes = sseConnections.get(requestId);
                     sseRes.write(`data: ${JSON.stringify({ 
@@ -656,10 +623,8 @@ export class Core {
                     sseConnections.delete(requestId);
                 }
                 
-                // 清理下载状态
                 downloadStates.delete(requestId);
                 
-                // 发送POST响应
                 res.json({
                     status: 200,
                     message: "模板安装成功",
@@ -667,10 +632,9 @@ export class Core {
                 });
             } catch (err) {
                 const error = err as Error;
-                const { requestId, url } = req.body;
-                logger.error("/templates/install-from-url 路由错误", { error: error.message, stack: error.stack, url });
+                const { requestId } = req.body;
+                logger.error("/templates/install-from-url 路由错误", { error: error.message, stack: error.stack, url: requestUrl });
                 
-                // 发送错误信息到SSE连接
                 if (sseConnections.has(requestId)) {
                     const sseRes = sseConnections.get(requestId);
                     sseRes.write(`data: ${JSON.stringify({ 
@@ -683,18 +647,16 @@ export class Core {
                     sseConnections.delete(requestId);
                 }
                 
-                // 清理下载状态
                 downloadStates.delete(requestId);
                 
                 res.status(500).json({ 
-                    status: 500, 
+                    status: 500,
                     message: "安装模板失败",
                     details: error.message 
                 });
             }
         });
         
-        // SSE连接 - GET请求
         this.app.get('/templates/install-from-url', (req, res) => {
             const { requestId } = req.query;
             
@@ -702,39 +664,32 @@ export class Core {
                 return res.status(400).json({ status: 400, message: "缺少 requestId 参数" });
             }
             
-            // 设置SSE响应头
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
             res.setHeader('Access-Control-Allow-Origin', '*');
             
-            // 存储连接
             sseConnections.set(requestId, res);
             
-            // 发送初始信息
             res.write(`data: ${JSON.stringify({ type: 'init' })}\n\n`);
             
-            // 处理连接关闭
             req.on('close', () => {
                 sseConnections.delete(requestId);
                 console.log(`SSE连接已关闭: ${requestId}`);
             });
         });
 
-        // 获取模板商店数据
         this.app.get('/templates/store', async (req, res) => {
             try {
                 const { default: got } = await import('got');
                 
-                // 从指定URL获取模板商店数据
                 const response = await got('http://git.xcclyc.com.cn/xcclyc/DeEarthX-CE-Tems/raw/branch/main/template_stor.json', {
                     timeout: {
-                        request: 10000 // 10秒超时
+                        request: 10000
                     }
                 });
                 const data = JSON.parse(response.body);
                 
-                // 确保返回的数据结构符合前端预期
                 if (!data.templates) {
                     return res.json({
                         status: 200,
@@ -749,7 +704,6 @@ export class Core {
             } catch (err) {
                 const error = err as Error;
                 logger.error("/templates/store 路由错误", error);
-                // 即使获取失败，也返回空的模板列表，确保前端能正常加载
                 res.json({
                     status: 200,
                     data: { templates: [] }
@@ -758,11 +712,6 @@ export class Core {
         });
     }
 
-    // ==================== Guardian (ServerGuardian) ====================
-
-    /**
-     * 初始化 Guardian 模块
-     */
     private initGuardian(): void {
         const guardianConfig: IGuardianConfig = {
             enabled: this.config.guardian?.enabled ?? false,
@@ -795,7 +744,6 @@ export class Core {
             },
             onAIAnalysis: (diagnosis) => {
                 this.sendGuardianEvent('guardian_ai_analysis', diagnosis);
-                // 同步推送最新的 AI 对话记录
                 if (this.guardian) {
                     this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
                 }
@@ -824,125 +772,103 @@ export class Core {
         logger.info('ServerGuardian 模块已初始化');
     }
 
-    /**
-     * 发送 Guardian WebSocket 事件
-     */
     private sendGuardianEvent(type: string, data: any): void {
         try {
-            if (this.wsx && this.wsx.readyState === websocket.OPEN) {
-                this.wsx.send(JSON.stringify({ type, data }));
+            if (this.currentSocket && this.currentSocket.connected) {
+                this.currentSocket.emit(type, { type, data });
             }
         } catch (err) {
             logger.error('发送 Guardian 事件失败', err as Error);
         }
     }
 
-    /**
-     * 设置 Guardian WebSocket 消息处理器
-     */
-    private setupGuardianWSHandler(ws: websocket): void {
+    private setupGuardianIOHandler(socket: Socket): void {
         if (!this.guardian) return;
 
-        ws.on('message', (raw) => {
-            try {
-                const msg = JSON.parse(raw.toString());
-                if (!msg.type || !msg.type.startsWith('guardian_')) return;
-
-                switch (msg.type) {
-                    case 'guardian_start':
-                        if (this.guardian) {
-                            const { workDir, javaCommand, serverType } = msg.data || {};
-                            if (workDir) {
-                                this.guardian.updateConfig({
-                                    workDir,
-                                    javaCommand: javaCommand || '',
-                                    serverType: serverType || 'unknown'
-                                });
-                            }
-                            this.guardian.start();
-                        }
-                        break;
-
-                    case 'guardian_stop':
-                        this.guardian?.stop();
-                        break;
-
-                    case 'guardian_test_ai':
-                        if (this.guardian) {
-                            this.guardian.testAI().then(result => {
-                                this.sendGuardianEvent('guardian_test_ai_result', result);
-                            }).catch((err: Error) => {
-                                this.sendGuardianEvent('guardian_test_ai_result', {
-                                    success: false,
-                                    message: `AI 测试内部错误: ${err.message}`
-                                });
-                            });
-                        } else {
-                            this.sendGuardianEvent('guardian_test_ai_result', {
-                                success: false,
-                                message: 'Guardian 模块未初始化，请检查配置后重试'
-                            });
-                        }
-                        break;
-
-                    case 'guardian_approve':
-                        this.guardian?.approveActions(msg.data?.actionIds || []);
-                        break;
-
-                    case 'guardian_reject':
-                        this.guardian?.rejectActions(msg.data?.actionIds || []);
-                        break;
-
-                    case 'guardian_rollback':
-                        this.guardian?.rollbackLastFix();
-                        break;
-
-                    case 'guardian_restart':
-                        this.guardian?.confirmRestart();
-                        break;
-
-                    case 'guardian_command':
-                        this.guardian?.sendCommand(msg.data?.command || '');
-                        break;
-
-                    case 'guardian_get_ai_conversation':
-                        if (this.guardian) {
-                            this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
-                        }
-                        break;
-
-                    case 'guardian_reset_ai_conversation':
-                        if (this.guardian) {
-                            this.guardian.resetAIConversations();
-                            this.sendGuardianEvent('guardian_ai_conversation', []);
-                        }
-                        break;
-
-                    case 'guardian_update_config':
-                        this.guardian?.updateConfig(msg.data || {});
-                        // 同时更新全局配置
-                        if (msg.data?.ai) {
-                            const current = Config.getConfig();
-                            current.guardian = {
-                                ...current.guardian!,
-                                ai: { ...current.guardian!.ai, ...msg.data.ai }
-                            };
-                            Config.writeConfig(current);
-                            Config.clearCache();
-                        }
-                        break;
+        socket.on('guardian_start', (data: any) => {
+            if (this.guardian) {
+                const { workDir, javaCommand, serverType } = data || {};
+                if (workDir) {
+                    this.guardian.updateConfig({
+                        workDir,
+                        javaCommand: javaCommand || '',
+                        serverType: serverType || 'unknown'
+                    });
                 }
-            } catch (err) {
-                logger.error('处理 Guardian WebSocket 消息失败', err as Error);
+                this.guardian.start();
+            }
+        });
+
+        socket.on('guardian_stop', () => {
+            this.guardian?.stop();
+        });
+
+        socket.on('guardian_test_ai', () => {
+            if (this.guardian) {
+                this.guardian.testAI().then(result => {
+                    this.sendGuardianEvent('guardian_test_ai_result', result);
+                }).catch((err: Error) => {
+                    this.sendGuardianEvent('guardian_test_ai_result', {
+                        success: false,
+                        message: `AI 测试内部错误: ${err.message}`
+                    });
+                });
+            } else {
+                this.sendGuardianEvent('guardian_test_ai_result', {
+                    success: false,
+                    message: 'Guardian 模块未初始化，请检查配置后重试'
+                });
+            }
+        });
+
+        socket.on('guardian_approve', (data: any) => {
+            this.guardian?.approveActions(data?.actionIds || []);
+        });
+
+        socket.on('guardian_reject', (data: any) => {
+            this.guardian?.rejectActions(data?.actionIds || []);
+        });
+
+        socket.on('guardian_rollback', () => {
+            this.guardian?.rollbackLastFix();
+        });
+
+        socket.on('guardian_restart', () => {
+            this.guardian?.confirmRestart();
+        });
+
+        socket.on('guardian_command', (data: any) => {
+            this.guardian?.sendCommand(data?.command || '');
+        });
+
+        socket.on('guardian_get_ai_conversation', () => {
+            if (this.guardian) {
+                this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
+            }
+        });
+
+        socket.on('guardian_reset_ai_conversation', () => {
+            if (this.guardian) {
+                this.guardian.resetAIConversations();
+                this.sendGuardianEvent('guardian_ai_conversation', []);
+            }
+        });
+
+        socket.on('guardian_update_config', (data: any) => {
+            this.guardian?.updateConfig(data || {});
+            if (data?.ai) {
+                const current = Config.getConfig();
+                current.guardian = {
+                    ...current.guardian!,
+                    ai: { ...current.guardian!.ai, ...data.ai }
+                };
+                Config.writeConfig(current);
+                Config.clearCache();
             }
         });
     }
 
-    /**
-     * Guardian REST API 路由
-     */
     private setupGuardianRoutes(): void {
-        // 获取 Guardian 状态
         this.app.get('/guardian/status', (req, res) => {
             if (!this.guardian) {
                 return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
@@ -957,7 +883,6 @@ export class Core {
             });
         });
 
-        // 获取日志缓冲区
         this.app.get('/guardian/logs', (req, res) => {
             if (!this.guardian) {
                 return res.json({ status: 200, logs: [] });
@@ -967,7 +892,6 @@ export class Core {
             res.json({ status: 200, logs: buffer.slice(-lines) });
         });
 
-        // 获取报告列表
         this.app.get('/guardian/reports', (req, res) => {
             if (!this.guardian) {
                 return res.json({ status: 200, reports: [] });
