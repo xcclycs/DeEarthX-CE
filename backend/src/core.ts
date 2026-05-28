@@ -1,17 +1,19 @@
-import express, { Application } from "express";
+import express, { Application, Router } from "express";
 import multer from "multer";
 import cors from "cors"
 import { createServer, Server as HTTPServer } from "node:http";
 import { Config, IConfig } from "./utils/config.js";
 import { Dex } from "./Dex.js";
 import { logger } from "./utils/logger.js";
-import { checkJava, JavaCheckResult, detectJavaPaths } from "./utils/utils.js";
+import { checkJava, JavaCheckResult, detectJavaPaths, getAppDir } from "./utils/utils.js";
 import { Galaxy } from "./galaxy.js";
 import { GuardianController } from "./guardian/index.js";
 import type { IGuardianConfig } from "./guardian/types.js";
 import { initializeIO, getIO, getCurrentSocket, sendToSocket, MessageIO } from "./utils/socket.io.js";
 import type { Socket, Server as SocketIOServer } from "socket.io";
 import fs from "node:fs";
+import path from "node:path";
+import { PluginManager } from "./plugin/index.js";
 
 export class Core {
     private config: IConfig;
@@ -23,6 +25,8 @@ export class Core {
     dex: Dex;
     galaxy: Galaxy;
     guardian!: GuardianController;
+    pluginManager: PluginManager;
+    private pluginRouter: Router;
     
     constructor(config: IConfig) {
         this.config = config
@@ -33,6 +37,9 @@ export class Core {
         this.setupSocketIOHandlers();
         this.dex = new Dex(this.io);
         this.galaxy = new Galaxy();
+        this.pluginManager = new PluginManager();
+        this.dex.setPluginManager(this.pluginManager);
+        this.pluginRouter = Router();
         this.initGuardian();
         const storage = multer.memoryStorage();
         this.upload = multer({ 
@@ -110,6 +117,7 @@ export class Core {
         this.setupJavaRoutes();
         this.setupTemplateRoutes();
         this.setupGuardianRoutes();
+        this.setupPluginRoutes();
     }
 
     private setupMiddleware() {
@@ -900,6 +908,223 @@ export class Core {
         });
     }
 
+    private setupPluginRoutes(): void {
+        this.app.use("/plugins", this.pluginRouter);
+
+        this.pluginRouter.get("/", (req, res) => {
+            try {
+                const plugins = this.pluginManager.getPlugins();
+                res.json({ status: 200, data: plugins });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取插件列表失败" });
+            }
+        });
+
+        this.pluginRouter.get("/:id", (req, res) => {
+            try {
+                const { id } = req.params;
+                const plugin = this.pluginManager.getPlugin(id);
+                if (!plugin) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                res.json({
+                    status: 200,
+                    data: {
+                        manifest: plugin.manifest,
+                        enabled: plugin.enabled,
+                        config: plugin.config
+                    }
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取插件信息失败" });
+            }
+        });
+
+        this.pluginRouter.post("/:id/enable", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const success = await this.pluginManager.enablePlugin(id);
+                if (!success) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                this.pluginManager.writeGlobalPluginConfigs();
+                res.json({ status: 200, message: "插件已启用" });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/enable 路由错误", error);
+                res.status(500).json({ status: 500, message: "启用插件失败" });
+            }
+        });
+
+        this.pluginRouter.post("/:id/disable", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const success = await this.pluginManager.disablePlugin(id);
+                if (!success) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                this.pluginManager.writeGlobalPluginConfigs();
+                res.json({ status: 200, message: "插件已禁用" });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/disable 路由错误", error);
+                res.status(500).json({ status: 500, message: "禁用插件失败" });
+            }
+        });
+
+        this.pluginRouter.get("/:id/config", (req, res) => {
+            try {
+                const { id } = req.params;
+                const plugin = this.pluginManager.getPlugin(id);
+                if (!plugin) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                res.json({
+                    status: 200,
+                    data: {
+                        settings: plugin.config.settings,
+                        defaults: plugin.manifest.defaultConfig || {}
+                    }
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/config 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取插件配置失败" });
+            }
+        });
+
+        this.pluginRouter.post("/:id/config", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { settings } = req.body;
+                const success = await this.pluginManager.updatePluginConfig(id, settings || {});
+                if (!success) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                res.json({ status: 200, message: "配置已更新" });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/config POST 路由错误", error);
+                res.status(500).json({ status: 500, message: "更新插件配置失败" });
+            }
+        });
+
+        this.pluginRouter.post("/create", async (req, res) => {
+            try {
+                const { name, author, url, withTutorial } = req.body;
+                if (!name || !author) {
+                    return res.status(400).json({ status: 400, message: "插件名称和作者不能为空" });
+                }
+                const result = await this.pluginManager.createPlugin({
+                    name,
+                    author,
+                    url: url || "",
+                    withTutorial: !!withTutorial
+                });
+                res.json({ status: 200, message: "插件创建成功", data: result });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/create 路由错误", error);
+                res.status(500).json({ status: 500, message: "创建插件失败" });
+            }
+        });
+
+        this.pluginRouter.post("/install", this.upload.single("file"), async (req, res) => {
+            try {
+                if (!req.file) {
+                    return res.status(400).json({ status: 400, message: "未上传文件" });
+                }
+
+                const fileExtension = req.file.originalname.toLowerCase().substring(req.file.originalname.lastIndexOf('.'));
+                if (fileExtension !== '.zip') {
+                    return res.status(400).json({ status: 400, message: "只支持 .zip 文件" });
+                }
+
+                const pluginId = await this.pluginManager.installPlugin(req.file.buffer);
+                if (!pluginId) {
+                    return res.status(400).json({ status: 400, message: "插件安装失败，请检查插件包格式" });
+                }
+
+                this.pluginManager.writeGlobalPluginConfigs();
+                res.json({ status: 200, message: "插件安装成功", data: { id: pluginId } });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/install 路由错误", error);
+                res.status(500).json({ status: 500, message: "安装插件失败" });
+            }
+        });
+
+        this.pluginRouter.delete("/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const keepConfig = req.query.keepConfig !== 'false';
+
+                const success = await this.pluginManager.uninstallPlugin(id, keepConfig);
+                if (!success) {
+                    return res.status(404).json({ status: 404, message: "插件不存在或删除失败" });
+                }
+
+                this.pluginManager.writeGlobalPluginConfigs();
+                res.json({ status: 200, message: keepConfig ? "插件已卸载（配置已保留）" : "插件已完全删除" });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id DELETE 路由错误", error);
+                res.status(500).json({ status: 500, message: "删除插件失败" });
+            }
+        });
+
+        this.pluginRouter.get("/:id/export", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const buffer = await this.pluginManager.exportPlugin(id);
+                if (!buffer) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                const plugin = this.pluginManager.getPlugin(id);
+                const name = plugin ? plugin.manifest.name : id;
+                const tempPath = path.join(getAppDir(), `${name}-${Date.now()}.zip`);
+                fs.writeFileSync(tempPath, buffer);
+                res.download(tempPath, `${name}.zip`, (err) => {
+                    fs.unlink(tempPath, () => {});
+                    if (err) {
+                        logger.error(`导出插件失败: ${err.message}`);
+                    }
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/export 路由错误", error);
+                res.status(500).json({ status: 500, message: "导出插件失败" });
+            }
+        });
+
+        this.pluginRouter.get("/:id/sidebar", (req, res) => {
+            try {
+                const { id } = req.params;
+                const plugin = this.pluginManager.getPlugin(id);
+                if (!plugin) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+                res.json({
+                    status: 200,
+                    data: {
+                        hasSidebar: plugin.manifest.hasSidebar || false,
+                        sidebarItems: plugin.manifest.sidebarItems || []
+                    }
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/sidebar 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取插件侧边栏信息失败" });
+            }
+        });
+
+        this.pluginManager.setupPluginRoutes(this.pluginRouter);
+    }
+
     public async start() {
         
         this.setupExpressRoutes();
@@ -907,6 +1132,8 @@ export class Core {
         const host = this.config.host || 'localhost';
         this.server.listen(port, host, async () => {
             logger.info(`服务器正在运行于 http://${host}:${port}`);
+            await this.pluginManager.initialize(this.io);
+            this.pluginManager.setupPluginSocketHandlers(this.io);
             await this.javachecker();
         });
         

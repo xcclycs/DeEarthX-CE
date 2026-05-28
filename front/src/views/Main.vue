@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-import { inject, ref, onMounted, computed } from 'vue';
+import { inject, ref, onMounted, computed, onUnmounted } from 'vue';
 import { InboxOutlined } from '@ant-design/icons-vue';
 import { message, notification, StepsProps } from 'ant-design-vue';
 import type { UploadFile, UploadChangeParam } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { SelectProps } from 'ant-design-vue/es/vc-select';
 import { useI18n } from 'vue-i18n';
+import { getSocketIO, disconnectSocket } from '../utils/socket';
 
 const { t } = useI18n();
 
@@ -185,6 +186,7 @@ interface ProgressStatus {
 }
 const unzipProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
 const downloadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
+const downloadDescription = ref('');
 const uploadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const serverInstallProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const filterModsProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
@@ -233,7 +235,7 @@ function formatTime(seconds: number): string {
 }
 
 // 运行DeEarthX核心功能
-async function runDeEarthX(file: File, ws: WebSocket) {
+async function runDeEarthX(file: File) {
     message.success(t('home.start_production'));
     showSteps.value = true;
 
@@ -307,7 +309,6 @@ async function runDeEarthX(file: File, ws: WebSocket) {
         message.error(t('home.request_failed'));
         uploadProgress.value.status = 'exception';
         resetState();
-        ws.close();
     }
 }
 
@@ -386,6 +387,20 @@ function handleError(result: any) {
     }
 }
 
+// 更新窗口进度
+function updateWindowProgress() {
+    (window as any).progressData = {
+        uploadProgress: uploadProgress.value,
+        unzipProgress: unzipProgress.value,
+        downloadProgress: downloadProgress.value,
+        downloadDescription: downloadDescription.value,
+        serverInstallProgress: serverInstallProgress.value,
+        filterModsProgress: filterModsProgress.value,
+        serverInstallInfo: serverInstallInfo.value,
+        filterModsInfo: filterModsInfo.value
+    };
+}
+
 // 更新解压进度
 function updateUnzipProgress(result: { current: number; total: number }) {
     unzipProgress.value.percent = Math.round((result.current / result.total) * 100);
@@ -395,17 +410,22 @@ function updateUnzipProgress(result: { current: number; total: number }) {
             unzipProgress.value.display = false;
         }, 2000);
     }
+    updateWindowProgress();
 }
 
 // 更新下载进度
-function updateDownloadProgress(result: { index: number; total: number }) {
+function updateDownloadProgress(result: { index: number; total: number; name?: string }) {
     downloadProgress.value.percent = Math.round((result.index / result.total) * 100);
+    if (result.name) {
+        downloadDescription.value = result.name;
+    }
     if (downloadProgress.value.percent === 100) {
         downloadProgress.value.status = 'success';
         setTimeout(() => {
             downloadProgress.value.display = false;
         }, 2000);
     }
+    updateWindowProgress();
 }
 
 // 处理完成状态
@@ -436,6 +456,7 @@ function handleServerInstallStart(result: any) {
         duration: 0
     };
     serverInstallProgress.value = { status: 'active', percent: 0, display: true };
+    updateWindowProgress();
 }
 
 // 处理服务端安装步骤
@@ -448,6 +469,7 @@ function handleServerInstallStep(result: any) {
     // 计算总体进度
     const overallProgress = (result.stepIndex / result.totalSteps) * 100;
     serverInstallProgress.value.percent = Math.round(overallProgress);
+    updateWindowProgress();
 }
 
 // 处理服务端安装进度
@@ -455,6 +477,7 @@ function handleServerInstallProgress(result: any) {
     serverInstallInfo.value.currentStep = result.step;
     serverInstallInfo.value.message = result.message || result.step;
     serverInstallProgress.value.percent = result.progress;
+    updateWindowProgress();
 }
 
 // 处理服务端安装完成
@@ -475,7 +498,9 @@ function handleServerInstallComplete(result: any) {
     // 8秒后隐藏进度
     setTimeout(() => {
         serverInstallProgress.value.display = false;
+        updateWindowProgress();
     }, 8000);
+    updateWindowProgress();
 }
 
 // 处理服务端安装错误
@@ -490,6 +515,7 @@ function handleServerInstallError(result: any) {
         description: result.error,
         duration: 0
     });
+    updateWindowProgress();
 }
 
 // 处理筛选模组开始
@@ -505,6 +531,7 @@ function handleFilterModsStart(result: any) {
         duration: 0
     };
     filterModsProgress.value = { status: 'active', percent: 0, display: true };
+    updateWindowProgress();
 }
 
 // 处理筛选模组进度
@@ -514,6 +541,7 @@ function handleFilterModsProgress(result: any) {
     
     const percent = Math.round((result.current / result.total) * 100);
     filterModsProgress.value.percent = percent;
+    updateWindowProgress();
 }
 
 // 处理筛选模组完成
@@ -530,7 +558,9 @@ function handleFilterModsComplete(result: any) {
     // 8秒后隐藏进度
     setTimeout(() => {
         filterModsProgress.value.display = false;
+        updateWindowProgress();
     }, 8000);
+    updateWindowProgress();
 }
 
 // 处理筛选模组错误
@@ -544,7 +574,11 @@ function handleFilterModsError(result: any) {
         description: result.error,
         duration: 0
     });
+    updateWindowProgress();
 }
+
+// Socket.IO 引用
+let socket: any = null;
 
 // 开始处理文件
 function handleStartProcess() {
@@ -561,76 +595,91 @@ function handleStartProcess() {
     showSteps.value = true;
 
     message.loading(t('home.ws_connecting'));
-    const wsHost = import.meta.env.VITE_WS_HOST || 'localhost';
-    const wsPort = import.meta.env.VITE_WS_PORT || '37019';
-    const ws = new WebSocket(`ws://${wsHost}:${wsPort}/`);
+    
+    socket = getSocketIO();
 
-    ws.addEventListener('open', () => {
+    socket.on('connect', () => {
         message.success(t('home.ws_connected'));
-        runDeEarthX(file, ws);
+        runDeEarthX(file);
     });
 
-    ws.addEventListener('message', (event) => {
+    socket.on('error', (data: any) => {
         try {
-            const data = JSON.parse(event.data);
-
-            if (data.type === 'error') {
-                handleError(data.message);
-            } else if (data.type === 'info') {
-                message.info(data.message);
-            } else if (data.status) {
-                switch (data.status) {
-                    case 'error':
-                        handleError(data.result);
-                        break;
-                    case 'changed':
-                        currentStep.value++;
-                        break;
-                    case 'unzip':
-                        updateUnzipProgress(data.result);
-                        break;
-                    case 'downloading':
-                        updateDownloadProgress(data.result);
-                        break;
-                    case 'finish':
-                        handleFinish(data.result);
-                        break;
-                    case 'server_install_start':
-                        handleServerInstallStart(data.result);
-                        break;
-                    case 'server_install_step':
-                        handleServerInstallStep(data.result);
-                        break;
-                    case 'server_install_progress':
-                        handleServerInstallProgress(data.result);
-                        break;
-                    case 'server_install_complete':
-                        handleServerInstallComplete(data.result);
-                        break;
-                    case 'server_install_error':
-                        handleServerInstallError(data.result);
-                        break;
-                    case 'filter_mods_start':
-                        handleFilterModsStart(data.result);
-                        break;
-                    case 'filter_mods_progress':
-                        handleFilterModsProgress(data.result);
-                        break;
-                    case 'filter_mods_complete':
-                        handleFilterModsComplete(data.result);
-                        break;
-                    case 'filter_mods_error':
-                        handleFilterModsError(data.result);
-                        break;
-                }
-            }
-        } catch (error) {
-            console.error('解析WebSocket消息失败:', error);
-            notification.error({ message: t('common.error'), description: t('home.parse_error') });
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            handleError(parsed.message);
+        } catch {
+            handleError(data);
         }
     });
 
-    ws.addEventListener('error', () => {
+    socket.on('info', (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            if (parsed.message) {
+                message.info(parsed.message);
+            }
+        } catch {
+            message.info(data);
+        }
+    });
+
+    socket.on('changed', () => {
+        currentStep.value++;
+    });
+
+    socket.on('unzip', (data: any) => {
+        updateUnzipProgress(data);
+    });
+
+    socket.on('downloading', (data: any) => {
+        updateDownloadProgress(data);
+    });
+
+    socket.on('finish', (data: any) => {
+        handleFinish(data);
+    });
+
+    socket.on('server_install_start', (data: any) => {
+        handleServerInstallStart(data);
+    });
+
+    socket.on('server_install_step', (data: any) => {
+        handleServerInstallStep(data);
+    });
+
+    socket.on('server_install_progress', (data: any) => {
+        handleServerInstallProgress(data);
+    });
+
+    socket.on('server_install_complete', (data: any) => {
+        handleServerInstallComplete(data);
+    });
+
+    socket.on('server_install_error', (data: any) => {
+        handleServerInstallError(data);
+    });
+
+    socket.on('filter_mods_start', (data: any) => {
+        handleFilterModsStart(data);
+    });
+
+    socket.on('filter_mods_progress', (data: any) => {
+        handleFilterModsProgress(data);
+    });
+
+    socket.on('filter_mods_complete', (data: any) => {
+        handleFilterModsComplete(data);
+    });
+
+    socket.on('filter_mods_error', (data: any) => {
+        handleFilterModsError(data);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Socket.IO 连接关闭');
+    });
+
+    socket.on('connect_error', () => {
         notification.error({
             message: t('home.ws_error_title'),
             description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
@@ -638,11 +687,14 @@ function handleStartProcess() {
         });
         resetState();
     });
-
-    ws.addEventListener('close', () => {
-        console.log('WebSocket连接关闭');
-    });
 }
+
+// 组件卸载时断开连接
+onUnmounted(() => {
+    if (socket) {
+        socket.disconnect();
+    }
+});
 </script>
 <template>
     <div class="tw:h-full tw:w-full tw:relative tw:flex tw:flex-col">
@@ -706,6 +758,9 @@ function handleStartProcess() {
                 <div v-if="downloadProgress.display" class="tw:mb-4">
                     <h1 class="tw:text-sm">{{ t('home.download_progress') }}</h1>
                     <a-progress :percent="downloadProgress.percent" :status="downloadProgress.status" size="small" />
+                    <div v-if="downloadDescription" class="tw:text-xs tw:text-gray-400 tw:mt-1 tw:truncate">
+                        {{ downloadDescription }}
+                    </div>
                 </div>
                 <div v-if="serverInstallProgress.display" class="tw:mb-4">
                     <h1 class="tw:text-sm">{{ t('home.server_install_progress') }}</h1>

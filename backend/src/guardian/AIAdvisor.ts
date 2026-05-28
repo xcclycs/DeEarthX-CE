@@ -4,13 +4,7 @@
  */
 
 import { AIDiagnosis, RepairAction, IGuardianConfig, CrashInfo, CrashClassification, AIConversationEntry } from './types.js';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { logger } from '../utils/logger.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 function fillTemplate(template: string, vars: Record<string, string>): string {
   let result = template;
@@ -20,9 +14,83 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
   return result;
 }
 
-const PROMPT_DIR = path.join(__dirname, 'prompts');
-const CHECK_COMPLETION_PROMPT = fs.readFileSync(path.join(PROMPT_DIR, 'check-completion-prompt.md'), 'utf-8');
-const DIAGNOSIS_PROMPT = fs.readFileSync(path.join(PROMPT_DIR, 'diagnosis-prompt.md'), 'utf-8');
+const CHECK_COMPLETION_PROMPT = `你是一个严格的 Minecraft 服务端运行情况分析专家。
+
+不绝对等于运行正常！请仔细检查日志的最后部分，确认服务端是否真的正常完成。并且不是崩溃！
+
+## 语言要求
+**请分析用户提供的日志的语言，并使用完全相同的语言进行所有输出！**
+- 如果大部分内容是中文，使用中文
+- 如果大部分内容是英文，使用英文
+- 如果是其他语言，请使用相同语言
+- **所有判断、诊断、解释都必须使用相同语言**
+
+【最近日志片段（最后部分，行号为倒序编号）】
+
+{logContext}
+
+【判断规则（优先级从高到低）】
+1. 如果日志尾部最后若干行中包含 "Failed to start the minecraft server"、"LoadingFailedException"、"has failed to load correctly"、"ERROR"、"Exception"、"Caused by"、"FATAL" 等错误，即使退出码为 0，也必须判定为崩溃。
+2. 特别注意：ModLauncher、BootstrapLauncher 中任何 mod 加载错误、LoadingFailedException 都属于严重崩溃，绝不能判定为完成。
+3. 特别注意："has failed to load correctly" 表示模组加载失败，属于严重错误，绝不能判定为完成。
+4. 只有日志尾部最后若干行完全没有任何错误（全部是 INFO 级别消息，且包含 Done! / Forge 启动成功关键字），才能返回 type: "complete"。
+
+【输出要求】
+- 如果判定为正常完成：actions 中只包含 { type: "complete", target: "", reason: "..." }，其中 reason 用与用户语言一致的文字说明
+- 如果判定为崩溃：按标准崩溃诊断格式输出 diagnosis、causes、actions（修复建议），并在 diagnosis 末尾标注出问题的行号（如"（问题出现在日志第 23-35 行）" / "(Issue occurs at log lines 23-35)"）
+- 严格返回 JSON 格式，不要添加任何额外说明。
+- **确保使用与用户相同的语言进行所有说明和解释！**`;
+
+const DIAGNOSIS_PROMPT = `你是一个 Minecraft 服务端崩溃诊断专家。
+请分析以下服务端崩溃信息，并按严格 JSON 格式输出。
+
+## 语言要求
+**请分析用户提供的日志、模组列表、错误信息等所有内容的语言，并使用完全相同的语言进行所有输出！**
+- 如果大部分内容是中文，使用中文
+- 如果大部分内容是英文，使用英文
+- 如果是其他语言，请使用相同语言
+- **所有诊断、原因、解释都必须使用相同语言**
+
+## 服务端信息
+- 类型: {serverType}
+- Minecraft 版本: {mcVersion}
+- Java 版本: {javaVersion}
+
+## 已安装模组
+{modList}
+
+## 崩溃日志（最后部分，每行前有行号，从 1 开始编号）
+\`\`\`
+{logContext}
+\`\`\`
+
+## 崩溃分类
+- 类型: {crashType}
+- 初步原因: {crashReason}
+
+## 上次修复操作（如有）
+{previousActions}
+
+## 输出要求
+仅返回一个 JSON 对象（不要用 markdown 代码块包裹，只输出纯 JSON），包含以下字段：
+
+- "diagnosis": 用与用户语言一致的简短诊断，客观描述崩溃原因和定位，在末尾标明错误所在的行号（如"（日志第 23-35 行出现错误）" / "(Error occurs at log lines 23-35)"）。
+- "causes": 字符串数组，用与用户语言一致的文字列出可能的原因。
+- "actions": 修复操作列表，每个操作包含：
+  - "type": 操作类型，可选值：move_file / delete_file / edit_config / add_jvm_arg / remove_mod / download_file
+  - "target": 目标文件路径（相对于服务端根目录）
+  - "destination": 移动目标路径（仅 move_file / remove_mod 需要）
+  - "file": 配置文件路径（仅 edit_config 需要）
+  - "key_path": 配置键路径，用点分隔（仅 edit_config 需要）
+  - "new_value": 新值（仅 edit_config / add_jvm_arg 需要）
+  - "jvm_arg": JVM 参数（仅 add_jvm_arg 需要）
+  - "reason": 操作原因，用与用户语言一致的文字解释
+
+## 注意事项
+- 所有操作路径必须相对于服务端根目录。
+- 不要建议直接删除模组文件，而应使用 remove_mod 操作将其移动到 .rubbish/ 目录。
+- 仅生成合理、必要的操作，不要添加无意义的步骤。
+- **确保使用与用户相同的语言进行所有诊断、原因和操作解释！**`;
 
 /** AI 配置 */
 export interface AIConfig {

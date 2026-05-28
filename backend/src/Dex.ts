@@ -13,10 +13,12 @@ import yauzl from "yauzl";
 import archiver from "archiver";
 import type { Server as SocketIOServer } from "socket.io";
 import type { Socket } from "socket.io";
+import { PluginManager } from "./plugin/index.js";
 
 export class Dex {
   io!: SocketIOServer;
   message!: MessageWS;
+  pluginManager!: PluginManager;
   
   constructor(io: SocketIOServer) {
     this.io = io;
@@ -25,6 +27,10 @@ export class Dex {
       logger.info(`Dex Socket.IO 客户端连接: ${socket.id}`);
       this.message = new MessageWS(socket);
     });
+  }
+
+  setPluginManager(manager: PluginManager) {
+    this.pluginManager = manager;
   }
 
   public async Main(buffer: Buffer, dser: boolean, filename?: string, template?: string) {
@@ -41,7 +47,23 @@ export class Dex {
   }
 
   private async processModpack(buffer: Buffer, filename: string | undefined, startTime: number, isServerMode: boolean, template?: string) {
+    const hookContext = {
+      modpackName: filename || 'unknown',
+      serverMode: isServerMode,
+      template
+    };
+
+    if (this.pluginManager) {
+      buffer = await this.pluginManager.executeHooksWithTransform('beforeModpackProcess', hookContext, buffer);
+    }
+
     const processedBuffer = await this._processModpack(buffer, filename);
+
+    if (this.pluginManager) {
+      const transformed = await this.pluginManager.executeHooksWithTransform('afterModpackProcess', hookContext, processedBuffer);
+      if (transformed) Object.assign(hookContext, { buffer: transformed });
+    }
+
     const zps = await this._zips(processedBuffer);
     const { contain, info } = await zps._getinfo();
     
@@ -61,9 +83,36 @@ export class Dex {
     const unpath = p.join(getAppDir(), "instance", mpname);
     
     await this.parallelTasks(zps, mpname, plat, info, unpath);
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('beforeFilterMods', { ...hookContext, filePath: unpath });
+    }
+
     await this.filterMods(unpath, mpname);
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('afterFilterMods', { ...hookContext, filePath: unpath });
+    }
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('beforeInstallModLoader', { ...hookContext, filePath: unpath });
+    }
+
     await this.installModLoader(plat, info, unpath, isServerMode, template);
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('afterInstallModLoader', { ...hookContext, filePath: unpath });
+    }
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('beforeCompleteTask', { ...hookContext, filePath: unpath });
+    }
+
     await this.completeTask(startTime, unpath, mpname, isServerMode);
+
+    if (this.pluginManager) {
+      await this.pluginManager.executeHooks('afterCompleteTask', { ...hookContext, filePath: unpath });
+    }
   }
 
   private async parallelTasks(zps: any, mpname: string, plat: string | undefined, info: any, unpath: string) {

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { h, provide, ref, onMounted, computed } from 'vue';
 import { MenuProps, message } from 'ant-design-vue';
-import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, RobotOutlined } from '@ant-design/icons-vue';
+import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, RobotOutlined, AppstoreOutlined } from '@ant-design/icons-vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Command } from '@tauri-apps/plugin-shell';
 import { useI18n } from 'vue-i18n';
@@ -185,9 +185,16 @@ router.beforeEach((to, _from, next) => {
         '/galaxy': 'galaxy',
         '/deearth': 'deearth',
         '/template': 'template',
-        '/guardian': 'guardian'
+        '/guardian': 'guardian',
+        '/plugins': 'plugin',
+        '/plugin': 'plugin'
     };
-    selectedKeys.value[0] = routeToKey[to.path] || 'main';
+
+    if (to.path.startsWith('/plugin/')) {
+        selectedKeys.value[0] = 'plugin';
+    } else {
+        selectedKeys.value[0] = routeToKey[to.path] || 'main';
+    }
     next();
 });
 
@@ -225,6 +232,12 @@ const menuItems = computed<MenuProps['items']>(() => {
             title: t('menu.guardian'),
         },
         {
+            key: 'plugin',
+            icon: h(AppstoreOutlined),
+            label: t('menu.plugin'),
+            title: t('menu.plugin'),
+        },
+        {
             key: 'setting',
             icon: h(SettingOutlined),
             label: t('menu.setting'),
@@ -249,7 +262,8 @@ const handleMenuClick: MenuProps['onClick'] = (e) => {
         about: '/about',
         galaxy: '/galaxy',
         template: '/template',
-        guardian: '/guardian'
+        guardian: '/guardian',
+        plugin: '/plugins'
     };
     const route = routeMap[e.key] || '/';
     router.push(route);
