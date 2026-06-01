@@ -1,7 +1,7 @@
 <script lang="ts" setup>
-import { h, provide, ref, onMounted, computed } from 'vue';
+import { h, provide, ref, onMounted, onUnmounted, computed } from 'vue';
 import { MenuProps, message } from 'ant-design-vue';
-import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, RobotOutlined, AppstoreOutlined } from '@ant-design/icons-vue';
+import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, AppstoreOutlined, CloudDownloadOutlined } from '@ant-design/icons-vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Command } from '@tauri-apps/plugin-shell';
 import { useI18n } from 'vue-i18n';
@@ -157,10 +157,46 @@ async function runCoreProcess() {
 }
 
 
+// 健康检查定时器
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function startHealthCheck() {
+    stopHealthCheck();
+    healthCheckInterval = setInterval(async () => {
+        if (backendStatus.value !== 'success') return;
+        try {
+            const response = await fetch('http://localhost:37019/', {
+                method: 'GET',
+                signal: AbortSignal.timeout(3000)
+            });
+            if (!response.ok) {
+                throw new Error(`状态码: ${response.status}`);
+            }
+        } catch {
+            console.warn('后端健康检查失败，尝试重启...');
+            backendStatus.value = 'loading';
+            message.warning(t('message.backend_health_check_failed_restart'));
+            runCoreProcess();
+        }
+    }, 10000);
+}
+
+function stopHealthCheck() {
+    if (healthCheckInterval !== null) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+    }
+}
+
 // 组件挂载时启动后端
 onMounted(async () => {
     loadVersion();
     runCoreProcess();
+    startHealthCheck();
+    setTimeout(() => {
+        fetchPluginSidebarItems();
+        loadPluginInjections();
+    }, 5000);
 });
 
 provide("killCoreProcess", () => {
@@ -172,8 +208,83 @@ provide("killCoreProcess", () => {
         }
 });
 
+onUnmounted(() => {
+    stopHealthCheck();
+});
+
 // 导航菜单配置
 const selectedKeys = ref<(string | number)[]>(['main']);
+
+interface PluginSidebarItem {
+    key: string;
+    pluginId: string;
+    label: string;
+    icon?: string;
+    route: string;
+}
+
+const pluginSidebarItems = ref<PluginSidebarItem[]>([]);
+
+async function fetchPluginSidebarItems() {
+    try {
+        const response = await fetch("http://localhost:37019/plugins");
+        const result = await response.json();
+        if (result.status === 200 && result.data) {
+            const items: PluginSidebarItem[] = [];
+            for (const plugin of result.data) {
+                if (plugin.enabled && plugin.manifest?.hasSidebar && plugin.manifest?.sidebarItems?.length > 0) {
+                    for (const item of plugin.manifest.sidebarItems) {
+                        items.push({
+                            key: `plugin-${item.key}`,
+                            pluginId: plugin.manifest.id,
+                            label: item.label,
+                            route: item.route.replace(/^\//, ''),
+                            icon: item.icon
+                        });
+                    }
+                }
+            }
+            pluginSidebarItems.value = items;
+        }
+    } catch {
+        // 后端可能还未就绪，忽略
+    }
+}
+
+async function loadPluginInjections() {
+    try {
+        const response = await fetch("http://localhost:37019/plugins/injections");
+        const result = await response.json();
+        if (result.status === 200 && result.data) {
+            const loadedUrls = new Set(
+                Array.from(document.querySelectorAll('link[data-plugin-inject], script[data-plugin-inject]'))
+                    .map(el => el.getAttribute('data-plugin-inject'))
+            );
+
+            for (const injection of result.data) {
+                for (const cssUrl of injection.css) {
+                    if (!loadedUrls.has(cssUrl)) {
+                        const link = document.createElement('link');
+                        link.rel = 'stylesheet';
+                        link.href = cssUrl;
+                        link.setAttribute('data-plugin-inject', cssUrl);
+                        document.head.appendChild(link);
+                    }
+                }
+                for (const jsUrl of injection.js) {
+                    if (!loadedUrls.has(jsUrl)) {
+                        const script = document.createElement('script');
+                        script.src = jsUrl;
+                        script.setAttribute('data-plugin-inject', jsUrl);
+                        document.head.appendChild(script);
+                    }
+                }
+            }
+        }
+    } catch {
+        // 后端可能还未就绪，忽略
+    }
+}
 
 // 监听路由变化，更新选中菜单
 router.beforeEach((to, _from, next) => {
@@ -185,15 +296,38 @@ router.beforeEach((to, _from, next) => {
         '/galaxy': 'galaxy',
         '/deearth': 'deearth',
         '/template': 'template',
-        '/guardian': 'guardian',
-        '/plugins': 'plugin',
-        '/plugin': 'plugin'
+        '/plugins': 'plugin-manager',
+        '/plugin': 'plugin-manager'
     };
 
     if (to.path.startsWith('/plugin/')) {
-        selectedKeys.value[0] = 'plugin';
+        selectedKeys.value[0] = 'plugin-manager';
+    } else if (to.path.startsWith('/plugin-page/')) {
+        const sidebarItem = pluginSidebarItems.value.find(item => to.path.includes(item.pluginId) && to.path.includes(item.route));
+        if (sidebarItem) {
+            selectedKeys.value[0] = sidebarItem.key;
+        } else {
+            selectedKeys.value[0] = 'plugin-manager';
+        }
+    } else if (to.path === '/guardian') {
+        const guardianItem = pluginSidebarItems.value.find(item => item.pluginId === 'guardian');
+        if (guardianItem) {
+            selectedKeys.value[0] = guardianItem.key;
+        } else {
+            selectedKeys.value[0] = 'plugin';
+        }
     } else {
-        selectedKeys.value[0] = routeToKey[to.path] || 'main';
+        const matchedKey = routeToKey[to.path];
+        if (matchedKey) {
+            selectedKeys.value[0] = matchedKey;
+        } else {
+            const sidebarItem = pluginSidebarItems.value.find(item => to.path.startsWith(item.route));
+            if (sidebarItem) {
+                selectedKeys.value[0] = sidebarItem.key;
+            } else {
+                selectedKeys.value[0] = 'main';
+            }
+        }
     }
     next();
 });
@@ -226,16 +360,30 @@ const menuItems = computed<MenuProps['items']>(() => {
             title: t('menu.template'),
         },
         {
-            key: 'guardian',
-            icon: h(RobotOutlined),
-            label: t('menu.guardian'),
-            title: t('menu.guardian'),
+            key: 'download',
+            icon: h(CloudDownloadOutlined),
+            label: t('menu.download'),
+            title: t('menu.download'),
         },
         {
             key: 'plugin',
             icon: h(AppstoreOutlined),
             label: t('menu.plugin'),
             title: t('menu.plugin'),
+            children: pluginSidebarItems.value.length > 0
+                ? [
+                    {
+                        key: 'plugin-manager',
+                        label: t('plugin.title'),
+                        title: t('plugin.title'),
+                    },
+                    ...pluginSidebarItems.value.map(item => ({
+                        key: item.key,
+                        label: item.label,
+                        title: item.label,
+                    }))
+                  ]
+                : undefined,
         },
         {
             key: 'setting',
@@ -262,9 +410,16 @@ const handleMenuClick: MenuProps['onClick'] = (e) => {
         about: '/about',
         galaxy: '/galaxy',
         template: '/template',
-        guardian: '/guardian',
-        plugin: '/plugins'
+        download: '/download',
+        plugin: '/plugins',
+        'plugin-manager': '/plugins'
     };
+    // 检查是否插件侧边栏项
+    const sidebarItem = pluginSidebarItems.value.find(item => item.key === e.key);
+    if (sidebarItem) {
+        router.push(`/plugin-page/${sidebarItem.pluginId}/${sidebarItem.route}`);
+        return;
+    }
     const route = routeMap[e.key] || '/';
     router.push(route);
 };

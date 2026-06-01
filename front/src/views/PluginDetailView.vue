@@ -8,7 +8,8 @@ import {
   CodeOutlined,
   ExportOutlined,
   DeleteOutlined,
-  SettingOutlined
+  SettingOutlined,
+  ToolOutlined
 } from '@ant-design/icons-vue';
 import { useI18n } from 'vue-i18n';
 
@@ -25,9 +26,11 @@ interface PluginManifest {
   description?: string;
   openSource?: boolean;
   sourceUrl?: string;
+  icon?: string;
   hasSidebar?: boolean;
   sidebarItems?: Array<{ key: string; label: string; icon?: string; route: string }>;
   defaultConfig?: Record<string, any>;
+  configLabels?: Record<string, string>;
 }
 
 interface PluginInfo {
@@ -204,25 +207,31 @@ onMounted(async () => {
 
     <template v-else-if="plugin">
       <div class="tw:flex tw:items-center tw:gap-3 tw:mb-6">
-        <a-button type="text" @click="router.push('/plugins')">
+        <a-button type="text" class="tw:inline-flex tw:items-center tw:justify-center" @click="router.push('/plugins')">
           <template #icon><ArrowLeftOutlined /></template>
         </a-button>
+        <div v-if="plugin.manifest.icon" class="tw:w-10 tw:h-10 tw:rounded-xl tw:bg-gradient-to-br tw:from-blue-50 tw:to-indigo-100 tw:flex tw:items-center tw:justify-center tw:text-xl">
+          {{ plugin.manifest.icon }}
+        </div>
+        <div v-else class="tw:w-10 tw:h-10 tw:rounded-xl tw:bg-gradient-to-br tw:from-blue-50 tw:to-indigo-100 tw:flex tw:items-center tw:justify-center tw:text-lg">
+          <ToolOutlined class="tw:text-blue-500" />
+        </div>
         <div>
           <h1 class="tw:text-2xl tw:font-bold tw:text-gray-800">{{ plugin.manifest.name }}</h1>
-          <p class="tw:text-sm tw:text-gray-500">v{{ plugin.manifest.version }}</p>
+          <p class="tw:text-sm tw:text-gray-500">{{ plugin.manifest.author }} · v{{ plugin.manifest.version }}</p>
         </div>
         <div class="tw:flex-1" />
         <a-switch
           :checked="plugin.enabled"
           @change="togglePlugin"
         />
-        <a-button @click="exportPlugin">
+        <a-button class="tw:inline-flex tw:items-center" @click="exportPlugin">
           <template #icon><ExportOutlined /></template>
-          {{ t('plugin.export_button') }}
+          <span>{{ t('plugin.export_button') }}</span>
         </a-button>
-        <a-button danger @click="deletePlugin">
+        <a-button danger class="tw:inline-flex tw:items-center" @click="deletePlugin">
           <template #icon><DeleteOutlined /></template>
-          {{ t('plugin.delete_button') }}
+          <span>{{ t('plugin.delete_button') }}</span>
         </a-button>
       </div>
 
@@ -286,7 +295,7 @@ onMounted(async () => {
               <a-form-item
                 v-for="key in configKeys"
                 :key="key"
-                :label="key"
+                :label="plugin.manifest.configLabels?.[key] || key"
               >
                 <a-switch
                   v-if="getConfigFieldType(key) === 'boolean'"

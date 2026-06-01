@@ -358,7 +358,7 @@ export async function Wfastdownload(
         await downloadFile(url, filePath, enableHashVerify ? expectedHash : undefined, false, useChunked);
         if (!completed.has(index)) {
           completed.add(index);
-          sendWS('download', { index: index + 1, total: data.length, name: filePath });
+          sendWS('downloading', { index: completed.size, total: data.length, name: filePath });
         }
       } catch (error) {
         logger.error(`${url} 下载失败，已重试 3 次`, error);

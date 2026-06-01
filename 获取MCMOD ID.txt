@@ -1,0 +1,183 @@
+整个流程分为 **4 个环节**，核心思路是：**通过 CurseForge/Modrinth 的 Slug（项目短名）在本地内置数据库中匹配，查出 MC 百科的条目 ID，然后拼接 URL**。
+
+---
+
+### 1. 内置数据库：`moddata.txt`
+
+[moddata.txt](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Resources/moddata.txt) 是一个嵌入到程序资源中的文本文件，作为 **编译时内置** 的本地映射表。
+
+**文件格式**：
+
+```
+curseforge-slug@modrinth-slug|中文名
+```
+
+每行代表一个 MC 百科条目。行号 = MC 百科 ID。
+
+| 格式 | 示例 | 含义 |
+|------|------|------|
+| `slug@slug\|中文名` | `railcraft@railcraft-reborn\|铁路*` | 两边 Slug 不同 |
+| `slug@\|中文名` | `industrial-craft@\|工业时代2` | 仅 CurseForge 有，Modrinth 无 |
+| `@slug\|中文名` | `@redpower2-core\|红石力量2` | 仅 Modrinth 有，CurseForge 无 |
+| `slug\|中文名` | `buildcraft\|建筑` | 仅 CurseForge（无 Modrinth） |
+| `条目1¨条目2` | `iron-chests@...¨iron-chests-fabric@...` | 一行多个条目（`¨` 分隔） |
+
+**文件最后一行**是一个特殊的 `|` 分隔的排名数据，记录每个条目的浏览量排名（Popularity），用于排序。
+
+---
+
+### 2. 解析层：[WikiEntry.vb](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Modules/Resource/WikiEntry.vb)
+
+`WikiEntry.All` 是一个惰性加载的静态属性，首次访问时解析整个 `moddata.txt`：
+
+```vb
+' 第46-82行核心逻辑
+Cache = New List(Of WikiEntry)
+Dim i As Integer = 0
+Dim DataLines = ...moddata.txt内容按行分割...
+Dim Ranks = DataLines.Last.Split("|")       ' 最后一行 = 排名数据
+DataLines.RemoveAt(DataLines.Count - 1)      ' 移除排名行
+
+For Each Line In DataLines
+    i += 1  ' 行号即 MC百科 ID
+    For Each EntryData In Line.Split("¨")    ' ¨ 分隔同行多个条目
+        ' 解析 @ 符号确定 CurseForgeSlug 和 ModrinthSlug
+        If Splited(0).StartsWithF("@") Then
+            Entry.ModrinthSlug = Splited(0).Replace("@", "")     ' 仅 Modrinth
+        ElseIf Splited(0).EndsWithF("@") Then
+            Entry.CurseForgeSlug = Splited(0).TrimEnd("@")       ' 仅 CurseForge
+            Entry.ModrinthSlug = Entry.CurseForgeSlug            ' 同时设为相同
+        ElseIf Splited(0).Contains("@") Then
+            Entry.CurseForgeSlug = Splited(0).Split("@")(0)      ' 两边不同
+            Entry.ModrinthSlug = Splited(0).Split("@")(1)
+        Else
+            Entry.CurseForgeSlug = Splited(0)                    ' 无 @，仅 CurseForge
+        End If
+        Entry.Id = i              ' MC百科 ID = 行号
+        Entry.Popularity = Val(Ranks(i - 1))
+        Entry.ChineseName = ...   ' | 后面的中文名
+    Next
+Next
+```
+
+每个 `WikiEntry` 对象包含：
+- **Id**: MC 百科条目 ID（= 行号）
+- **CurseForgeSlug**: CurseForge 项目短名
+- **ModrinthSlug**: Modrinth 项目短名
+- **ChineseName**: 中文译名
+- **Popularity**: 浏览量排名
+
+---
+
+### 3. 关联层：[ResourceProject.vb](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Modules/Resource/ResourceProject.vb)
+
+当从 CurseForge/Modrinth API 获取项目信息时，会创建 `ResourceProject` 对象。**关键在 [第86-95行的 `WikiEntry` 属性](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Modules/Resource/ResourceProject.vb#L86-L95)**：
+
+```vb
+Private Property WikiEntry As WikiEntry
+    Get
+        If Not LoadedDatabase Then
+            LoadedDatabase = True
+            If Types.HasFlag(ResourceTypes.Mod) OrElse Types.HasFlag(ResourceTypes.DataPack) Then
+                _WikiEntry = WikiEntry.All.FirstOrDefault(
+                    Function(c) If(Platform = ResourcePlatforms.CurseForge,
+                                    c.CurseForgeSlug,    ' CurseForge 匹配 CurseForgeSlug
+                                    c.ModrinthSlug)      ' Modrinth 匹配 ModrinthSlug
+                        = Slug)                           ' = 项目的短名
+            End If
+        End If
+        Return _WikiEntry
+    End Get
+End Property
+```
+
+**匹配逻辑**：
+- 对 **CurseForge** 项目：在 `WikiEntry.All` 中查找 `c.CurseForgeSlug == project.Slug`
+- 对 **Modrinth** 项目：在 `WikiEntry.All` 中查找 `c.ModrinthSlug == project.Slug`
+- 仅在资源类型是 **Mod** 或 **DataPack** 时才查询
+
+此外还有一个 **[`IsLike` 方法](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Modules/Resource/ResourceProject.vb#L666-L696)**，当检测到 CurseForge 和 Modrinth 的同一个项目时，会**互相拷贝 WikiEntry**：
+```vb
+' 如果只有一个有 WikiEntry，设置给另外一个
+If WikiEntry Is Nothing AndAlso Project.WikiEntry IsNot Nothing Then
+    WikiEntry = Project.WikiEntry
+End If
+```
+
+---
+
+### 4. URL 构造与使用
+
+#### 场景 A：下载详情页 → 精确链接
+
+[PageDownloadCompDetail.xaml.vb 第500-502行](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Pages/PageDownload/Resource/PageDownloadCompDetail.xaml.vb#L500-L502)：
+
+```vb
+Private Sub BtnIntroWiki_Click(sender As Object, e As EventArgs)
+    OpenWebsite("https://www.mcmod.cn/class/" & Project.WikiId & ".html")
+End Sub
+```
+
+按钮的可见性由 [第284行](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Pages/PageDownload/Resource/PageDownloadCompDetail.xaml.vb#L284) 控制：
+```vb
+BtnIntroWiki.Visibility = If(Project.WikiId = 0, Visibility.Collapsed, Visibility.Visible)
+```
+
+**URL 格式**：`https://www.mcmod.cn/class/{MC百科ID}.html`
+
+#### 场景 B：本地 Mod 管理页 → 关键字搜索
+
+[PageInstanceMod.xaml.vb 第786行](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Pages/PageInstance/PageInstanceMod.xaml.vb#L786)（当本地 Mod 没有匹配到 `ResourceProject` 时）：
+
+```vb
+OpenWebsite("https://www.mcmod.cn/s?key=" & ModSearchName & "&site=all&filter=0")
+```
+
+**URL 格式**：`https://www.mcmod.cn/s?key={搜索词}&site=all&filter=0`
+
+这里的搜索词是通过驼峰命名拆分得到的（如 `JustEnoughItems` → `Just+Enough+Items`）。
+
+---
+
+### 5. 本地 Mod 如何关联到 MC 百科
+
+[LocalResourceLoaders.vb](file:///c:/Users/XCC/Desktop/PCL/Plain%20Craft%20Launcher%202/Modules/Resource/LocalResourceLoaders.vb) 中，本地 Mod 通过 **文件哈希** 与网络项目关联：
+
+| 平台 | 哈希算法 | API |
+|------|---------|-----|
+| CurseForge | MurmurHash2 | `POST /v1/fingerprints/432` |
+| Modrinth | SHA1 | `POST /v2/version_files` |
+
+匹配成功后，`LocalResourceFile.Project` 被设置为对应的 `ResourceProject`，从而获得 `WikiId`。之后在 Mod 详情页点击时，会直接跳转到 `PageDownloadResourceDetail` 页面（第758-759行），在那里就能看到 "转到 MC 百科" 按钮。
+
+---
+
+### 整体流程图
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        moddata.txt（内置数据库）                    │
+│  curseforge-slug@modrinth-slug|中文名                              │
+│  行号 = MC百科 ID                                                  │
+└───────────────┬──────────────────────────────────────────────────┘
+                │ 解析
+                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     WikiEntry.All（内存列表）                       │
+│  {CurseForgeSlug, ModrinthSlug, Id(=行号), ChineseName, Popularity}│
+└───────────────┬──────────────────────────────────────────────────┘
+                │ Slug 匹配
+                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│       CurseForge API ──→ ResourceProject ──→ WikiEntry           │
+│       Modrinth API   ──→ ResourceProject ──→ WikiEntry           │
+│         （按平台选 CurseForgeSlug 或 ModrinthSlug 匹配）            │
+└───────────────┬──────────────────────────────────────────────────┘
+                │ WikiId = WikiEntry.Id
+                ▼
+┌──────────────────────────────────────────────────────────────────┐
+│        https://www.mcmod.cn/class/{WikiId}.html                   │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**总结**：PCL **不通过 API 动态查询** MC 百科，而是维护一个编译时内置的 `moddata.txt` 数据库。通过 CurseForge/Modrinth 项目的 **Slug（短名）** 作为桥梁，在本地数据库中查找对应的 MC 百科条目 ID（行号），最终拼接成 `https://www.mcmod.cn/class/{ID}.html` 链接。对于数据库中未收录的项目，则降级为 MC 百科的关键字搜索链接。

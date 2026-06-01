@@ -26,6 +26,7 @@
     "deearth": "フィルター",
     "galaxy": "送信",
     "template": "テンプレート",
+    "download": "ダウンロード",
     "guardian": "AI モード",
     "plugin": "プラグイン",
     "setting": "設定",
@@ -263,5 +264,28 @@
     "backend_restart": "DeEarthX.Coreを再起動します！",
     "retry_start": "起動に失敗しました、再試行中 ({current}/{max})...",
     "config_load_error": "設定の読み込みに失敗しました"
+  },
+  "download": {
+    "title": "サーバーをダウンロード",
+    "subtitle": "Modローダーサーバーを自動インストール",
+    "step1_title": "Minecraft バージョン",
+    "step2_title": "ローダータイプ",
+    "step3_title": "ローダーバージョン",
+    "step4_title": "インストールオプション",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "すべての依存関係を自動インストール",
+    "option_auto_install_desc": "すべての依存ファイルを自動ダウンロードしてインストール",
+    "option_manual_script": "後でスクリプトを実行してインストール",
+    "option_manual_script_desc": "インストーラーをダウンロードしてスクリプトを生成し、手動でインストール",
+    "start_install": "インストール開始",
+    "select_mc_version": "Minecraft バージョンを選択",
+    "select_loader_version": "ローダーバージョンを選択",
+    "install_completed": "インストール完了！",
+    "install_failed": "インストール失敗",
+    "install_error": "インストールエラー",
+    "install_duration": "所要時間",
+    "reset": "最初からやり直す"
   }
 }

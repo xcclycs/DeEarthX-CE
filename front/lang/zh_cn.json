@@ -26,6 +26,7 @@
     "deearth": "筛选",
     "galaxy": "提交",
     "template": "模板",
+    "download": "下载",
     "guardian": "AI 模式",
     "plugin": "插件",
     "setting": "设置",
@@ -268,6 +269,7 @@
     "backend_start_failed": "DeEarthX.Core 启动失败，请检查 37019 端口是否被占用！（已重试 {count} 次）",
     "backend_restart": "DeEarthX.Core 重新启动！",
     "retry_start": "启动失败，正在重试 ({current}/{max})...",
+    "backend_health_check_failed_restart": "后端服务无响应，正在尝试重启...",
     "config_load_error": "加载配置失败"
   },
   "guardian": {
@@ -477,6 +479,34 @@
     "create_author_required": "请输入作者",
     "create_url_label": "链接",
     "create_url_placeholder": "可选，如 https://github.com/...",
-    "create_with_tutorial": "创建教程插件（包含中文注释的完整示例代码）"
+    "create_with_tutorial": "创建教程插件（包含中文注释的完整示例代码）",
+    "open_folder_button": "打开插件文件夹",
+    "open_folder_success": "插件文件夹已打开",
+    "open_folder_failed": "打开文件夹失败"
+  },
+  "download": {
+    "title": "下载服务端",
+    "subtitle": "自动安装模组加载器服务端",
+    "step_config": "配置",
+    "step_install": "安装",
+    "step1_title": "Minecraft 版本",
+    "step2_title": "加载器类型",
+    "step3_title": "加载器版本",
+    "step4_title": "安装选项",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "自动安装所有依赖",
+    "option_auto_install_desc": "自动下载并安装所有依赖文件到目标目录",
+    "option_manual_script": "稍后执行脚本安装依赖",
+    "option_manual_script_desc": "下载安装器并生成安装脚本，手动执行安装",
+    "start_install": "开始安装",
+    "select_mc_version": "请选择 Minecraft 版本",
+    "select_loader_version": "请选择加载器版本",
+    "install_completed": "安装完成！",
+    "install_failed": "安装失败",
+    "install_error": "安装出错",
+    "install_duration": "耗时",
+    "reset": "重新开始"
   }
 }

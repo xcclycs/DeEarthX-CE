@@ -26,6 +26,7 @@
     "deearth": "Filtro",
     "galaxy": "Enviar",
     "template": "Plantilla",
+    "download": "Descargar",
     "guardian": "Modo IA",
     "plugin": "Plugins",
     "setting": "Configuración",
@@ -255,5 +256,28 @@
     "backend_restart": "¡Reiniciando DeEarthX.Core!",
     "retry_start": "Fallo al iniciar, reintentando ({current}/{max})...",
     "config_load_error": "Fallo al cargar configuración"
+  },
+  "download": {
+    "title": "Descargar Servidor",
+    "subtitle": "Instalar automáticamente el servidor del cargador de mods",
+    "step1_title": "Versión de Minecraft",
+    "step2_title": "Tipo de cargador",
+    "step3_title": "Versión del cargador",
+    "step4_title": "Opciones de instalación",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "Instalar todas las dependencias automáticamente",
+    "option_auto_install_desc": "Descargar e instalar todas las dependencias en el directorio de destino",
+    "option_manual_script": "Generar scripts para instalar más tarde",
+    "option_manual_script_desc": "Descargar instalador y generar scripts, instalar manualmente después",
+    "start_install": "Iniciar instalación",
+    "select_mc_version": "Seleccionar versión de Minecraft",
+    "select_loader_version": "Seleccionar versión del cargador",
+    "install_completed": "¡Instalación completada!",
+    "install_failed": "Instalación fallida",
+    "install_error": "Error de instalación",
+    "install_duration": "Duración",
+    "reset": "Empezar de nuevo"
   }
 }

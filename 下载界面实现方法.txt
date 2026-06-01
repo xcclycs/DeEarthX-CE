@@ -1,0 +1,372 @@
+DeEarthX 项目的下载功能分为**两大场景**和**33个相关文件**，贯穿前后端。以下是完整的架构与实现分析：
+
+---
+
+## 一、整体架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        前端 (Vue 3)                         │
+│  DownloadView.vue ──► useDownload.ts ──► axios/WebSocket    │
+│       │                      │                              │
+│  ProgressCard.vue      WebSocketHandler.vue                 │
+│  (下载进度展示)         (WS事件分发)                         │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTP + WebSocket
+┌──────────────────────▼──────────────────────────────────────┐
+│                      后端 (Express + Tauri)                  │
+│  routes/download.ts ──► routes/download-install.ts          │
+│       │                        │                            │
+│  utils/download.ts       modloader/*.ts                      │
+│  (核心下载引擎)          (Minecraft/Forge/Fabric安装器)      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 二、场景A：主页整合包模组下载（批量64并发）
+
+这是主页"一键转服务端"流程中的模组下载环节。
+
+### 后端核心下载引擎 — [download.ts](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/utils/download.ts)
+
+这是整个项目最重要的下载工具库（349行），提供**7个下载函数**：
+
+**1. 简单下载 `simpleDownload()`** (L69-L78)
+```typescript
+async function simpleDownload(url: string, filePath: string): Promise<void> {
+  const tempPath = filePath + ".downloading";
+  const res = await got.get(url, {
+    responseType: "buffer",
+    headers: { "user-agent": "DeEarthX" },
+    followRedirect: true,
+  });
+  fse.outputFileSync(tempPath, res.rawBody);
+  fs.renameSync(tempPath, filePath);  // 原子化：先写临时文件再重命名
+}
+```
+
+**2. 分块下载 `chunkedDownload()`** (L96-L225) — 这是性能核心
+```typescript
+async function chunkedDownload(url, filePath, chunkSize = 5 * 1024 * 1024) {
+  // MCIM 镜像优化：128KB块 + 64并发
+  if (useMCIMirror) { chunkSize = 128 * 1024; chunkConcurrency = 64; }
+  
+  // HEAD探测文件大小 + Accept-Ranges支持
+  const head = await got.head(url, ...);
+  fileSize = parseInt(head.headers['content-length'] || '0', 10);
+  
+  // 不支持Range则回退简单下载
+  if (!supportsRange) { await simpleDownload(url, filePath); return; }
+  
+  // 创建固定大小的稀疏文件，直接写入偏移量
+  const fd = await fs.promises.open(tempPath, 'w');
+  await fd.truncate(fileSize);
+  
+  // 每个块下载：Range请求 + 5次重试 + 429限流处理
+  const downloadChunk = async (chunkIndex) => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const res = await got.get(url, {
+        headers: { "Range": `bytes=${start}-${end}` },
+        timeout: { request: 60000 },
+      });
+      if (res.statusCode === 206) { await fd.write(res.rawBody, 0, ...); return; }
+      if (res.statusCode === 429) { await sleep(waitTime); continue; } // 限流等待
+    }
+  };
+  
+  await pMap(tasks, downloadChunk, { concurrency: currentConcurrency }); // 并发写入
+  fs.renameSync(tempPath, filePath); // 完成时原子重命名
+}
+```
+
+**3. 带重试的单文件下载 `downloadFile()`** (L229-L286)
+```typescript
+async function downloadFile(url, filePath, expectedHash?, forceDownload?, useChunked?) {
+  await pRetry(async () => {
+    if (fs.existsSync(filePath) && !forceDownload) {
+      if (expectedHash && !(await verifySHA1(filePath, expectedHash))) {
+        fs.unlinkSync(filePath); // 哈希不匹配则重新下载
+      } else return; // 文件已存在且哈希正确，跳过
+    }
+    if (useChunked) await chunkedDownload(url, filePath);
+    else await simpleDownload(url, filePath);
+    if (expectedHash && !(await verifySHA1(filePath, expectedHash))) throw Error(...);
+  }, { retries: 3 }); // 失败最多重试3次
+}
+```
+
+**4. 批量下载（带WebSocket进度） `Wfastdownload()`** (L321-L349)
+```typescript
+export async function Wfastdownload(data: string[][], ws: MessageWS, enableHashVerify = true, useChunked = false) {
+  const completed = new Set<number>();
+  return pMap(data, async (item: string[], index: number) => {
+    const [url, filePath, expectedHash] = item;
+    await downloadFile(url, filePath, enableHashVerify ? expectedHash : undefined, false, useChunked);
+    if (!completed.has(index)) {
+      completed.add(index);
+      ws.download(data.length, completed.size, filePath); // 每个文件下载完推送进度
+    }
+  }, { concurrency: 64 }); // 64并发
+}
+```
+
+**5. 批量下载（无WebSocket） `fastdownload()`** (L290-L317) — 16并发，加载器安装时使用
+
+**6. SHA1哈希验证** (L41-L65) — 流式计算，防止文件损坏
+
+**7. 镜像切换** (L21-L37) — 支持 MCIM 镜像加速（`mod.mcimirror.top`）
+
+### 后端WebSocket进度推送 — [socketio.ts](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/utils/socketio.ts)
+
+```typescript
+// L19-L21: 下载进度推送
+download(total: number, index: number, name: string) {
+    this.socket.emit("downloading", { total, index, name });
+}
+
+// L35-L73: 服务端安装进度系列
+serverInstallStart()   → emit "server_install_start"
+serverInstallStep()    → emit "server_install_step"  
+serverInstallProgress()→ emit "server_install_progress"
+serverInstallComplete()→ emit "server_install_complete"
+serverInstallError()   → emit "server_install_error"
+```
+
+### 前端的下载进度消费
+
+**WebSocketHandler.vue** (L191-L193) — 解析 `downloading` 事件：
+```typescript
+case 'downloading':
+    updateDownloadProgress(data.result);
+    break;
+```
+
+**ProgressCard.vue** (L106-L109) — 展示下载进度条：
+```html
+<div v-if="downloadProgress.display" class="tw:mb-4">
+    <h1 class="tw:text-sm">{{ t('home.download_progress') }}</h1>
+    <a-progress :percent="downloadProgress.percent" :status="downloadProgress.status" size="small" />
+</div>
+```
+
+---
+
+## 三、场景B：下载服务端页面（4步表单 + 安装）
+
+### 前端 — [DownloadView.vue](file:///c:/Users/XCC/Desktop/DeEarthX/front/src/views/DownloadView.vue)
+
+这是一个**4步骤级联表单**界面：
+
+| 步骤 | UI组件 | 数据来源 |
+|------|--------|----------|
+| 步骤1 | `a-select` 选择MC版本 | `GET /download/minecraft-versions` |
+| 步骤2 | `a-radio-group` 选择加载器类型 | 前端根据MC版本计算出可用加载器 |
+| 步骤3 | `a-select` 选择加载器版本 | `GET /download/{forge\|neoforge\|fabric}-versions` |
+| 步骤4 | `a-radio-group` 安装选项 + 开始按钮 | 自动安装 / 手动脚本 |
+
+```vue
+<!-- L36-L52: 步骤1 - MC版本选择 -->
+<a-select v-model:value="selectedMcVersion" :loading="loadingMcVersions"
+    show-search @change="handleMcVersionChange">
+  <a-select-option v-for="v in mcVersions" :key="v.id" :value="v.id">
+    {{ v.id }}
+  </a-select-option>
+</a-select>
+
+<!-- L54-L65: 步骤2 - 加载器类型 (v-if控制逐步显示) -->
+<div v-if="selectedMcVersion && availableLoaders.length > 0">
+  <a-radio-group v-model:value="selectedLoader" @change="handleLoaderChange">
+    <a-radio-button v-for="key in availableLoaders" :key="key" :value="key">
+      {{ loaderLabels[key] }}
+    </a-radio-button>
+  </a-radio-group>
+</div>
+
+<!-- L67-L93: 步骤3 - 加载器版本（含latest/stable/recommended标签） -->
+<a-select v-if="selectedLoader" v-model:value="selectedLoaderVersion" ...>
+  <a-select-option v-for="v in loaderVersions" :key="v.version" :value="v.version">
+    <span>{{ v.version }}</span>
+    <a-tag v-if="getForgeBadge(v.version)">{{ getForgeBadge(v.version) }}</a-tag>
+  </a-select-option>
+</a-select>
+
+<!-- L95-L136: 步骤4 - 安装方式 + 开始安装按钮 -->
+<div v-if="selectedLoaderVersion">
+  <a-radio-group v-model:value="autoInstall">
+    <a-radio :value="true">自动安装所有依赖</a-radio>
+    <a-radio :value="false">手动脚本执行</a-radio>
+  </a-radio-group>
+  <a-button type="primary" @click="startInstall">开始安装</a-button>
+</div>
+```
+
+### 前端状态管理 — [useDownload.ts](file:///c:/Users/XCC/Desktop/DeEarthX/front/src/composables/useDownload.ts)
+
+核心状态 + 级联联动逻辑：
+
+```typescript
+export function useDownload() {
+  // ── 状态 ──
+  const mcVersions = ref<MinecraftVersion[]>([]);
+  const selectedMcVersion = ref('');
+  const loaderVersions = ref<LoaderVersion[]>([]);
+  const selectedLoader = ref('');
+  const selectedLoaderVersion = ref('');
+  const autoInstall = ref(true);
+  
+  // ── 版本兼容性逻辑 ──
+  function getAvailableLoaders(mcVersion: string): string[] {
+    if (isVersionLessThan(mcVersion, '1.2.2')) return [];
+    const loaders: string[] = ['forge'];
+    if (!isVersionLessThan(mcVersion, '1.14')) loaders.push('fabric');
+    if (!isVersionLessThan(mcVersion, '1.20.1')) loaders.push('neoforge');
+    return loaders;
+  }
+
+  // ── 级联联动 ──
+  function handleMcVersionChange() {
+    selectedLoaderVersion.value = ''; loaderVersions.value = [];
+    availableLoaders.value = getAvailableLoaders(selectedMcVersion.value);
+    selectedLoader.value = getDefaultLoader(selectedMcVersion.value, available);
+    fetchLoaderVersions(); // 自动触发版本列表加载
+  }
+
+  function handleLoaderChange() {
+    selectedLoaderVersion.value = ''; loaderVersions.value = [];
+    fetchLoaderVersions();
+  }
+  
+  // ── 安装启动（WebSocket + HTTP POST） ──
+  function startInstall() {
+    socket = io(`ws://${wsHost}:${wsPort}`, { autoConnect: false });
+    socket.on('connect', () => {
+      axiosInstance.post(`/download/install?socketId=${socket!.id}`, {
+        loader, mcVersion, loaderVersion, autoInstall
+      });
+    });
+    socket.on('server_install_progress', (data) => {
+      serverInstallProgress.percent = data.progress;
+    });
+    socket.on('server_install_complete', (data) => {
+      serverInstallProgress.percent = 100;
+      installCompleted.value = true;
+    });
+    socket.connect();
+  }
+}
+```
+
+### 后端安装流程 — [download-install.ts](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/routes/download-install.ts)
+
+```typescript
+export async function performInstall(loader, mcVersion, loaderVersion, installPath, autoInstall, io, socketId) {
+  await fse.ensureDir(installPath);
+  
+  ws?.serverInstallStart("Server Install", mcVersion, loader, loaderVersion);
+
+  if (autoInstall) {
+    // 自动安装流程
+    ws?.serverInstallStep("安装 Minecraft 服务端", 1, 2);
+    const minecraft = new Minecraft(loader, mcVersion, loaderVersion, installPath);
+    await minecraft.setup();  // 下载 server.jar + 内嵌 libraries
+
+    ws?.serverInstallStep(`安装 ${loader} 加载器`, 2, 2);
+    await getLoaderInstance(loader, mcVersion, loaderVersion, installPath).setup();
+    // 调用 Forge/NeoForge/Fabric 各自的 setup() 下载安装器+库文件
+  } else {
+    // 手动脚本流程
+    ws?.serverInstallStep("下载安装器", 1, 2);
+    await getLoaderInstance(loader, mcVersion, loaderVersion, installPath).installer();
+    
+    ws?.serverInstallStep("生成安装脚本", 2, 2);
+    await generateInstallScripts(loader, mcVersion, loaderVersion, installPath);
+    // 生成 install_forge.bat/sh, install.bat/sh, run.bat/sh 等脚本
+  }
+
+  ws?.serverInstallComplete(installPath, duration);
+}
+```
+
+### 加载器工厂 — 根据类型创建不同实例：
+
+```typescript
+function getLoaderInstance(loader, mcVersion, loaderVersion, installPath) {
+  switch (loader) {
+    case "forge":    return new Forge(mcVersion, loaderVersion, installPath);
+    case "neoforge": return new NeoForge(mcVersion, loaderVersion, installPath);
+    case "fabric":   return new Fabric(mcVersion, loaderVersion, installPath);
+    default:         return new Minecraft(loader, mcVersion, loaderVersion, installPath);
+  }
+}
+```
+
+---
+
+## 四、后端API路由 — [routes/download.ts](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/routes/download.ts)
+
+| 路由 | 方法 | 功能 | 镜像源 |
+|------|------|------|--------|
+| `/download/minecraft-versions` | GET | MC版本列表 | BMCLAPI / Mojang |
+| `/download/forge-promos` | GET | Forge latest/recommended映射 | BMCLAPI |
+| `/download/forge-versions?mcver=` | GET | 指定MC的Forge版本 | BMCLAPI |
+| `/download/neoforge-versions?mcver=` | GET | 指定MC的NeoForge版本 | BMCLAPI |
+| `/download/fabric-versions?mcver=` | GET | 指定MC的Fabric版本 | Fabric Meta |
+| `/download/install` | POST | 触发安装流程 | — |
+
+所有GET接口都使用内存缓存 (`getCached`/`setCache`)，避免重复请求外部API。
+
+---
+
+## 五、下载流程时序图
+
+```
+用户点击 "开始安装"
+    │
+    ▼
+前端 useDownload.startInstall()
+    │
+    ├── 创建 Socket.IO 连接 (autoConnect: false)
+    │
+    ├── socket.on('connect') 触发
+    │       │
+    │       ▼
+    │   POST /download/install?socketId=xxx
+    │       │
+    │       ▼
+    │   后端 performInstall()
+    │       │
+    │       ├── ws.serverInstallStart()  ──emit──► 前端: "安装开始"
+    │       │
+    │       ├── Minecraft.setup()                      
+    │       │     └── fastdownload() 下载 server.jar + libraries
+    │       │
+    │       ├── Forge/Fabric.setup()                   
+    │       │     ├── 下载 installer.jar
+    │       │     └── fastdownload() 下载所有 Maven 依赖库
+    │       │
+    │       └── ws.serverInstallComplete() ──emit──► 前端: "安装完成"
+    │
+    └── socket.on('server_install_complete')
+            │
+            ▼
+        显示安装完成 + 安装路径 + 耗时
+```
+
+---
+
+## 六、关键设计亮点
+
+1. **61行版本兼容矩阵** — [useDownload.ts:L25-L39](file:///c:/Users/XCC/Desktop/DeEarthX/front/src/composables/useDownload.ts#L25-L39)：根据 Minecraft 版本自动判断可用的加载器类型
+
+2. **分块下载 + 降级策略** — [download.ts:L96-L225](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/utils/download.ts#L96-L225)：先HEAD探测、支持Range则分块并发、不支持则回退简单下载、429自动限流等待
+
+3. **原子写入** — 所有下载先写 `.downloading` 临时文件，完成后再 `rename`，确保不会产生损坏的半成品文件
+
+4. **SHA1完整性验证** — [download.ts:L41-L65](file:///c:/Users/XCC/Desktop/DeEarthX/backend/src/utils/download.ts#L41-L65)：流式计算，已验证文件自动跳过重新下载
+
+5. **双通道通信** — HTTP 负责短请求（版本列表查询），WebSocket 负责长连接实时进度推送
+
+6. **镜像加速** — 内置 MCIM 镜像（国内加速）和 BMCLAPI 镜像，镜像模式下自动切换到 128KB块+64并发
+
+7. **p-retry自动重试** — 单文件最多重试3次，防止网络抖动导致失败

@@ -1,0 +1,3 @@
+#By changing the setting below to TRUE you are indicating your agreement to our EULA (https://aka.ms/MinecraftEULA).
+#Spawn by DeEarthX(QQgroup:559349662) Tianpao:(https://space.bilibili.com/1728953419)
+eula=true

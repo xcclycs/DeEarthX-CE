@@ -26,6 +26,7 @@
     "deearth": "Filter",
     "galaxy": "Senden",
     "template": "Vorlage",
+    "download": "Herunterladen",
     "guardian": "KI-Modus",
     "plugin": "Plugins",
     "setting": "Einstellungen",
@@ -255,5 +256,28 @@
     "backend_restart": "DeEarthX.Core wird neu gestartet!",
     "retry_start": "Start fehlgeschlagen, Wiederholung ({current}/{max})...",
     "config_load_error": "Laden der Konfiguration fehlgeschlagen"
+  },
+  "download": {
+    "title": "Server herunterladen",
+    "subtitle": "Mod-Loader-Server automatisch installieren",
+    "step1_title": "Minecraft-Version",
+    "step2_title": "Loader-Typ",
+    "step3_title": "Loader-Version",
+    "step4_title": "Installationsoptionen",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "Alle Abhängigkeiten automatisch installieren",
+    "option_auto_install_desc": "Alle Abhängigkeiten automatisch herunterladen und installieren",
+    "option_manual_script": "Skripte für spätere Installation generieren",
+    "option_manual_script_desc": "Installer herunterladen und Skripte generieren, später manuell installieren",
+    "start_install": "Installation starten",
+    "select_mc_version": "Minecraft-Version auswählen",
+    "select_loader_version": "Loader-Version auswählen",
+    "install_completed": "Installation abgeschlossen!",
+    "install_failed": "Installation fehlgeschlagen",
+    "install_error": "Installationsfehler",
+    "install_duration": "Dauer",
+    "reset": "Neu starten"
   }
 }

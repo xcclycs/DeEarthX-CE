@@ -35,8 +35,16 @@ const router = createRouter({
             component: () => import("../views/TemplateView.vue")
         },
         {
+            path: "/download",
+            component: () => import("../views/DownloadView.vue")
+        },
+        {
             path: "/guardian",
             component: () => import("../views/GuardianView.vue")
+        },
+        {
+            path: "/plugin-page/guardian/:pageKey",
+            redirect: "/guardian"
         },
         {
             path: "/plugins",
@@ -45,6 +53,10 @@ const router = createRouter({
         {
             path: "/plugin/:id",
             component: () => import("../views/PluginDetailView.vue")
+        },
+        {
+            path: "/plugin-page/:pluginId/:pageKey",
+            component: () => import("../views/PluginPageView.vue")
         }
     ]
 })

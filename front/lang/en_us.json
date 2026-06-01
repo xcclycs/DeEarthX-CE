@@ -26,6 +26,7 @@
     "deearth": "Filter",
     "galaxy": "Submit",
     "template": "Template",
+    "download": "Download",
     "guardian": "AI Mode",
     "plugin": "Plugins",
     "setting": "Settings",
@@ -477,6 +478,32 @@
     "create_author_required": "Please enter author",
     "create_url_label": "URL",
     "create_url_placeholder": "Optional, e.g. https://github.com/...",
-    "create_with_tutorial": "Create tutorial plugin (includes complete example code with comments)"
+    "create_with_tutorial": "Create tutorial plugin (includes complete example code with comments)",
+    "open_folder_button": "Open Plugin Folder",
+    "open_folder_success": "Plugin folder opened",
+    "open_folder_failed": "Failed to open folder"
+  },
+  "download": {
+    "title": "Download Server",
+    "subtitle": "Auto-install mod loader server",
+    "step1_title": "Minecraft Version",
+    "step2_title": "Loader Type",
+    "step3_title": "Loader Version",
+    "step4_title": "Install Options",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "Install all dependencies automatically",
+    "option_auto_install_desc": "Download and install all dependencies to target directory",
+    "option_manual_script": "Generate scripts for later installation",
+    "option_manual_script_desc": "Download installer and generate scripts, install manually later",
+    "start_install": "Start Install",
+    "select_mc_version": "Select Minecraft version",
+    "select_loader_version": "Select loader version",
+    "install_completed": "Installation completed!",
+    "install_failed": "Installation failed",
+    "install_error": "Installation error",
+    "install_duration": "Duration",
+    "reset": "Start Over"
   }
 }

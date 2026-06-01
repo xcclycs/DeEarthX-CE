@@ -88,15 +88,26 @@ const addToBuffer = (logLine: string) => {
   }
 };
 
+const metaToString = (meta: any): string => {
+  if (meta instanceof Error) {
+    return `${meta.message} ${meta.stack || ''}`;
+  }
+  if (typeof meta === "object") {
+    try {
+      return JSON.stringify(meta);
+    } catch {
+      return String(meta);
+    }
+  }
+  return String(meta);
+};
+
 const writeToFile = (level: LogLevel, message: string, meta?: any) => {
   const timestamp = formatTime();
   let metaStr = "";
   if (meta) {
     try {
-      const metaContent = typeof meta === "object" 
-        ? JSON.stringify(meta) 
-        : String(meta);
-      metaStr = ` ${metaContent}`;
+      metaStr = ` ${metaToString(meta)}`;
     } catch {
       metaStr = " [元数据解析错误]";
     }
@@ -114,9 +125,7 @@ const log = (level: LogLevel, message: string, meta?: any) => {
   let metaStr = "";
   if (meta) {
     try {
-      const metaContent = typeof meta === "object" 
-        ? JSON.stringify(meta) 
-        : String(meta);
+      const metaContent = metaToString(meta);
       metaStr = ` ${colorize(metaContent, COLORS.dim)}`;
     } catch {
       metaStr = ` ${colorize("[元数据解析错误]", COLORS.red)}`;

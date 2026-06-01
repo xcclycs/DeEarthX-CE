@@ -57,16 +57,10 @@ export interface IDexpubCheckResult {
  * 筛选策略接口
  */
 export interface IFilterStrategy {
-  /**
-   * 策略名称
-   */
   name: string;
-  
-  /**
-   * 筛选客户端模组
-   * @param files 模组文件信息数组
-   * @returns 客户端模组文件名数组
-   */
+
+  replacesBuiltin?: boolean;
+
   filter(files: IFileInfo[]): Promise<string[]>;
 }
 
@@ -78,6 +72,8 @@ export interface IFilterConfig {
   dexpub: boolean;
   mixins: boolean;
   modrinth: boolean;
+  mcmodFilter?: boolean;
+  aiFilter?: boolean;
 }
 
 /**

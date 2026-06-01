@@ -4,7 +4,7 @@ import { HashFilter } from "./strategies/HashFilter.js";
 import { MixinFilter } from "./strategies/MixinFilter.js";
 import { DexpubFilter } from "./strategies/DexpubFilter.js";
 import { ModrinthFilter } from "./strategies/ModrinthFilter.js";
-import { IFilterConfig } from "./types.js";
+import { IFilterConfig, IFilterStrategy } from "./types.js";
 import { logger } from "../utils/logger.js";
 import { MessageWS } from "../utils/ws.js";
 import path from "node:path";
@@ -14,12 +14,14 @@ export class ModFilterService {
   private readonly operator: FileOperator;
   private readonly config: IFilterConfig;
   private messageWS?: MessageWS;
+  private extraStrategies: IFilterStrategy[];
 
-  constructor(modsPath: string, movePath: string, config: IFilterConfig, messageWS?: MessageWS) {
+  constructor(modsPath: string, movePath: string, config: IFilterConfig, messageWS?: MessageWS, extraStrategies?: IFilterStrategy[]) {
     this.extractor = new FileExtractor(modsPath);
     this.operator = new FileOperator(movePath);
     this.config = config;
     this.messageWS = messageWS;
+    this.extraStrategies = extraStrategies || [];
   }
 
   async filter(): Promise<void> {
@@ -60,65 +62,81 @@ export class ModFilterService {
     const clientMods: string[] = [];
     const processedFiles = new Set<string>();
 
-    if (this.config.dexpub) {
-      logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
-      const dexpubStrategy = new DexpubFilter();
-      const dexpubMods = await dexpubStrategy.filter(files);
-      const serverModsListSet = new Set(await dexpubStrategy.getServerMods(files));
+    const useReplacement = this.extraStrategies.some(s => s.replacesBuiltin);
 
-      dexpubMods.forEach(mod => processedFiles.add(mod));
-      serverModsListSet.forEach(mod => processedFiles.add(mod));
-      clientMods.push(...dexpubMods);
-
-      if (this.messageWS) {
-        this.messageWS.filterModsProgress(processedFiles.size, files.length, "Galaxy Square (dexpub) 检查");
-      }
-    }
-
-    if (this.config.modrinth) {
-      logger.info("开始 Modrinth API 检查客户端模组");
-
-      let serverModsSet = new Set<string>();
+    if (!useReplacement) {
       if (this.config.dexpub) {
+        logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
         const dexpubStrategy = new DexpubFilter();
-        serverModsSet = new Set(await dexpubStrategy.getServerMods(files));
+        const dexpubMods = await dexpubStrategy.filter(files);
+        const serverModsListSet = new Set(await dexpubStrategy.getServerMods(files));
+
+        dexpubMods.forEach(mod => processedFiles.add(mod));
+        serverModsListSet.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...dexpubMods);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Galaxy Square (dexpub) 检查");
+        }
       }
 
-      const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
-      const modrinthMods = await new ModrinthFilter().filter(unprocessedFiles);
+      if (this.config.modrinth) {
+        logger.info("开始 Modrinth API 检查客户端模组");
 
-      modrinthMods.forEach(mod => processedFiles.add(mod));
-      clientMods.push(...modrinthMods);
+        let serverModsSet = new Set<string>();
+        if (this.config.dexpub) {
+          const dexpubStrategy = new DexpubFilter();
+          serverModsSet = new Set(await dexpubStrategy.getServerMods(files));
+        }
 
-      if (this.messageWS) {
-        this.messageWS.filterModsProgress(processedFiles.size, files.length, "Modrinth API 检查");
+        const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
+        const modrinthMods = await new ModrinthFilter().filter(unprocessedFiles);
+
+        modrinthMods.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...modrinthMods);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Modrinth API 检查");
+        }
+      }
+
+      if (this.config.mixins) {
+        logger.info("开始 Mixin 检查客户端模组");
+
+        const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
+        const mixinMods = await new MixinFilter().filter(unprocessedFiles);
+
+        mixinMods.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...mixinMods);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Mixin 检查");
+        }
+      }
+
+      if (this.config.hashes) {
+        logger.info("开始 Hash 检查客户端模组");
+
+        const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
+        const hashMods = await new HashFilter().filter(unprocessedFiles);
+
+        clientMods.push(...hashMods);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Hash 检查");
+        }
       }
     }
 
-    if (this.config.mixins) {
-      logger.info("开始 Mixin 检查客户端模组");
-
+    for (const strategy of this.extraStrategies) {
+      logger.info(`开始插件策略检查: ${strategy.name}`);
       const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
-      const mixinMods = await new MixinFilter().filter(unprocessedFiles);
-
-      mixinMods.forEach(mod => processedFiles.add(mod));
-      clientMods.push(...mixinMods);
-
+      if (unprocessedFiles.length === 0) break;
+      const mods = await strategy.filter(unprocessedFiles);
+      mods.forEach((mod: string) => processedFiles.add(mod));
+      clientMods.push(...mods);
       if (this.messageWS) {
-        this.messageWS.filterModsProgress(processedFiles.size, files.length, "Mixin 检查");
-      }
-    }
-
-    if (this.config.hashes) {
-      logger.info("开始 Hash 检查客户端模组");
-
-      const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
-      const hashMods = await new HashFilter().filter(unprocessedFiles);
-
-      clientMods.push(...hashMods);
-
-      if (this.messageWS) {
-        this.messageWS.filterModsProgress(processedFiles.size, files.length, "Hash 检查");
+        this.messageWS.filterModsProgress(processedFiles.size, files.length, strategy.name);
       }
     }
 

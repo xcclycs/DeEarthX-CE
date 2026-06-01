@@ -26,6 +26,7 @@
     "deearth": "Filtre",
     "galaxy": "Soumettre",
     "template": "Modèle",
+    "download": "Télécharger",
     "guardian": "Mode IA",
     "plugin": "Plugins",
     "setting": "Paramètres",
@@ -255,5 +256,28 @@
     "backend_restart": "Redémarrage de DeEarthX.Core !",
     "retry_start": "Échec du démarrage, nouvelle tentative ({current}/{max})...",
     "config_load_error": "Échec du chargement de la configuration"
+  },
+  "download": {
+    "title": "Télécharger le serveur",
+    "subtitle": "Installer automatiquement le serveur du chargeur de mods",
+    "step1_title": "Version de Minecraft",
+    "step2_title": "Type de chargeur",
+    "step3_title": "Version du chargeur",
+    "step4_title": "Options d'installation",
+    "loader_forge": "Forge",
+    "loader_neoforge": "NeoForge",
+    "loader_fabric": "Fabric",
+    "option_auto_install": "Installer toutes les dépendances automatiquement",
+    "option_auto_install_desc": "Télécharger et installer toutes les dépendances dans le répertoire cible",
+    "option_manual_script": "Générer des scripts pour une installation ultérieure",
+    "option_manual_script_desc": "Télécharger l'installateur et générer des scripts, installer manuellement plus tard",
+    "start_install": "Démarrer l'installation",
+    "select_mc_version": "Sélectionner la version de Minecraft",
+    "select_loader_version": "Sélectionner la version du chargeur",
+    "install_completed": "Installation terminée !",
+    "install_failed": "Échec de l'installation",
+    "install_error": "Erreur d'installation",
+    "install_duration": "Durée",
+    "reset": "Recommencer"
   }
 }

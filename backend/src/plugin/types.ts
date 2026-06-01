@@ -1,5 +1,6 @@
-import type { Router, Request, Response, NextFunction } from "express";
+import type { Router } from "express";
 import type { Server as SocketIOServer } from "socket.io";
+import type { IFilterStrategy } from "../dearth/types.js";
 
 export interface PluginManifest {
   id: string;
@@ -17,6 +18,9 @@ export interface PluginManifest {
   hasSidebar?: boolean;
   sidebarItems?: PluginSidebarItem[];
   defaultConfig?: Record<string, any>;
+  configLabels?: Record<string, string>;
+  injectCSS?: string[];
+  injectJS?: string[];
 }
 
 export interface PluginSidebarItem {
@@ -41,6 +45,8 @@ export interface PluginHookContext {
   serverMode?: boolean;
   template?: string;
   data?: any;
+  getPluginConfig?: (pluginId: string) => PluginConfig | null;
+  getAllPluginConfigs?: () => Record<string, PluginConfig>;
 }
 
 export interface PluginHooks {
@@ -59,8 +65,10 @@ export interface PluginHooks {
   afterCompleteTask?: (context: PluginHookContext) => Promise<void>;
   onOutputZip?: (context: PluginHookContext) => Promise<Buffer | null | undefined>;
 
-  setupRoutes?: (router: Router) => void;
+  setupRoutes?: (router: Router, app?: any) => void;
   setupSocketHandlers?: (io: SocketIOServer) => void;
+
+  filterStrategies?: () => IFilterStrategy[];
 }
 
 export interface LoadedPlugin {

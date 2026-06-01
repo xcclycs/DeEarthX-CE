@@ -129,7 +129,8 @@ export class Dex {
 
   private async filterMods(unpath: string, mpname: string) {
     const config = Config.getConfig();
-    await new ModFilterService(p.join(unpath, "mods"), p.join(getAppDir(), ".rubbish", mpname), config.filter, this.message).filter();
+    const extraStrategies = this.pluginManager ? this.pluginManager.getFilterStrategies() : [];
+    await new ModFilterService(p.join(unpath, "mods"), p.join(getAppDir(), ".rubbish", mpname), config.filter, this.message, extraStrategies).filter();
     if (this.message) {
       this.message.statusChange();
     }

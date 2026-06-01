@@ -13,6 +13,7 @@ import { initializeIO, getIO, getCurrentSocket, sendToSocket, MessageIO } from "
 import type { Socket, Server as SocketIOServer } from "socket.io";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { PluginManager } from "./plugin/index.js";
 
 export class Core {
@@ -33,6 +34,7 @@ export class Core {
         this.app = express();
         this.server = createServer(this.app);
         this.io = initializeIO(this.server);
+        this.app.set("io", this.io);
         
         this.setupSocketIOHandlers();
         this.dex = new Dex(this.io);
@@ -58,8 +60,6 @@ export class Core {
         io.on("connection", (socket: Socket) => {
             this.currentSocket = socket;
             logger.info(`Socket.IO 客户端连接: ${socket.id}`);
-            
-            this.setupGuardianIOHandler(socket);
 
             socket.on("disconnect", (reason) => {
                 logger.info(`Socket.IO 客户端断开: ${socket.id}, 原因: ${reason}`);
@@ -116,8 +116,8 @@ export class Core {
         this.setupGalaxyRoutes();
         this.setupJavaRoutes();
         this.setupTemplateRoutes();
-        this.setupGuardianRoutes();
         this.setupPluginRoutes();
+        this.setupDownloadRoutes();
     }
 
     private setupMiddleware() {
@@ -782,133 +782,206 @@ export class Core {
 
     private sendGuardianEvent(type: string, data: any): void {
         try {
-            if (this.currentSocket && this.currentSocket.connected) {
-                this.currentSocket.emit(type, { type, data });
+            const io = getIO();
+            if (io) {
+                io.emit(type, { type, data });
             }
         } catch (err) {
             logger.error('发送 Guardian 事件失败', err as Error);
         }
     }
 
-    private setupGuardianIOHandler(socket: Socket): void {
-        if (!this.guardian) return;
-
-        socket.on('guardian_start', (data: any) => {
-            if (this.guardian) {
-                const { workDir, javaCommand, serverType } = data || {};
-                if (workDir) {
-                    this.guardian.updateConfig({
-                        workDir,
-                        javaCommand: javaCommand || '',
-                        serverType: serverType || 'unknown'
-                    });
+    private registerBuiltinGuardianPlugin(): void {
+        this.pluginManager.registerBuiltinPlugin(
+            {
+                id: "guardian",
+                name: "AI 模式",
+                version: "1.0.0",
+                author: "DeEarthX",
+                description: "AI 驱动的 Minecraft 服务端崩溃检测与自动修复系统。监控服务端运行状态，智能识别崩溃原因，自动执行修复操作。",
+                openSource: true,
+                sourceUrl: "https://github.com/DeEarthX-CE",
+                hasSidebar: true,
+                sidebarItems: [
+                    { key: "guardian-main", label: "AI 模式", route: "guardian-main" }
+                ],
+                defaultConfig: {
+                    aiProvider: "openai",
+                    aiApiKey: "",
+                    aiModel: "gpt-4.1-mini",
+                    aiBaseURL: "https://api.openai.com/v1",
+                    aiMaxTokens: 1500
+                },
+                configLabels: {
+                    aiProvider: "AI 提供商",
+                    aiApiKey: "API 密钥",
+                    aiModel: "模型",
+                    aiBaseURL: "API 地址",
+                    aiMaxTokens: "最大 Token 数"
                 }
-                this.guardian.start();
-            }
-        });
+            },
+            {
+                setupRoutes: (_router, app) => {
+                    if (!this.guardian || !app) return;
 
-        socket.on('guardian_stop', () => {
-            this.guardian?.stop();
-        });
-
-        socket.on('guardian_test_ai', () => {
-            if (this.guardian) {
-                this.guardian.testAI().then(result => {
-                    this.sendGuardianEvent('guardian_test_ai_result', result);
-                }).catch((err: Error) => {
-                    this.sendGuardianEvent('guardian_test_ai_result', {
-                        success: false,
-                        message: `AI 测试内部错误: ${err.message}`
+                    app.get('/guardian/status', (_req: any, res: any) => {
+                        if (!this.guardian) {
+                            return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
+                        }
+                        res.json({
+                            status: 200,
+                            enabled: true,
+                            guardianStatus: this.guardian.getStatus(),
+                            processInfo: this.guardian.getProcessInfo(),
+                            checkpoints: this.guardian.getCheckpoints(),
+                            reports: this.guardian.getReportsList()
+                        });
                     });
-                });
-            } else {
-                this.sendGuardianEvent('guardian_test_ai_result', {
-                    success: false,
-                    message: 'Guardian 模块未初始化，请检查配置后重试'
-                });
+
+                    app.get('/guardian/logs', (req: any, res: any) => {
+                        if (!this.guardian) {
+                            return res.json({ status: 200, logs: [] });
+                        }
+                        const lines = parseInt(req.query.lines as string) || 100;
+                        const buffer = this.guardian.getLogBuffer();
+                        res.json({ status: 200, logs: buffer.slice(-lines) });
+                    });
+
+                    app.get('/guardian/reports', (_req: any, res: any) => {
+                        if (!this.guardian) {
+                            return res.json({ status: 200, reports: [] });
+                        }
+                        res.json({ status: 200, reports: this.guardian.getReportsList() });
+                    });
+                },
+                setupSocketHandlers: (io) => {
+                    if (!this.guardian) return;
+
+                    io.on('connection', (socket) => {
+                        socket.on('guardian_start', (data: any) => {
+                            if (!this.guardian) return;
+                            const { workDir, javaCommand, serverType } = data || {};
+                            if (workDir) {
+                                this.guardian.updateConfig({
+                                    workDir,
+                                    javaCommand: javaCommand || '',
+                                    serverType: serverType || 'unknown'
+                                });
+                            }
+                            this.guardian.start();
+                        });
+
+                        socket.on('guardian_stop', () => {
+                            this.guardian?.stop();
+                        });
+
+                        socket.on('guardian_test_ai', () => {
+                            if (this.guardian) {
+                                this.guardian.testAI().then(result => {
+                                    this.sendGuardianEvent('guardian_test_ai_result', result);
+                                }).catch((err: Error) => {
+                                    this.sendGuardianEvent('guardian_test_ai_result', {
+                                        success: false,
+                                        message: `AI 测试内部错误: ${err.message}`
+                                    });
+                                });
+                            } else {
+                                this.sendGuardianEvent('guardian_test_ai_result', {
+                                    success: false,
+                                    message: 'Guardian 模块未初始化，请检查配置后重试'
+                                });
+                            }
+                        });
+
+                        socket.on('guardian_approve', (data: any) => {
+                            this.guardian?.approveActions(data?.actionIds || []);
+                        });
+
+                        socket.on('guardian_reject', (data: any) => {
+                            this.guardian?.rejectActions(data?.actionIds || []);
+                        });
+
+                        socket.on('guardian_rollback', () => {
+                            this.guardian?.rollbackLastFix();
+                        });
+
+                        socket.on('guardian_restart', () => {
+                            this.guardian?.confirmRestart();
+                        });
+
+                        socket.on('guardian_command', (data: any) => {
+                            this.guardian?.sendCommand(data?.command || '');
+                        });
+
+                        socket.on('guardian_get_ai_conversation', () => {
+                            if (this.guardian) {
+                                this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
+                            }
+                        });
+
+                        socket.on('guardian_reset_ai_conversation', () => {
+                            if (this.guardian) {
+                                this.guardian.resetAIConversations();
+                                this.sendGuardianEvent('guardian_ai_conversation', []);
+                            }
+                        });
+
+                        socket.on('guardian_update_config', (data: any) => {
+                            if (!this.guardian) return;
+                            this.guardian.updateConfig(data || {});
+                            if (data?.ai) {
+                                const current = Config.getConfig();
+                                current.guardian = {
+                                    ...current.guardian!,
+                                    ai: { ...current.guardian!.ai, ...data.ai }
+                                };
+                                Config.writeConfig(current);
+                                Config.clearCache();
+                            }
+                        });
+                    });
+                },
+                onDisable: async () => {
+                    if (this.guardian) {
+                        await this.guardian.stop();
+                    }
+                }
             }
-        });
-
-        socket.on('guardian_approve', (data: any) => {
-            this.guardian?.approveActions(data?.actionIds || []);
-        });
-
-        socket.on('guardian_reject', (data: any) => {
-            this.guardian?.rejectActions(data?.actionIds || []);
-        });
-
-        socket.on('guardian_rollback', () => {
-            this.guardian?.rollbackLastFix();
-        });
-
-        socket.on('guardian_restart', () => {
-            this.guardian?.confirmRestart();
-        });
-
-        socket.on('guardian_command', (data: any) => {
-            this.guardian?.sendCommand(data?.command || '');
-        });
-
-        socket.on('guardian_get_ai_conversation', () => {
-            if (this.guardian) {
-                this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
-            }
-        });
-
-        socket.on('guardian_reset_ai_conversation', () => {
-            if (this.guardian) {
-                this.guardian.resetAIConversations();
-                this.sendGuardianEvent('guardian_ai_conversation', []);
-            }
-        });
-
-        socket.on('guardian_update_config', (data: any) => {
-            this.guardian?.updateConfig(data || {});
-            if (data?.ai) {
-                const current = Config.getConfig();
-                current.guardian = {
-                    ...current.guardian!,
-                    ai: { ...current.guardian!.ai, ...data.ai }
-                };
-                Config.writeConfig(current);
-                Config.clearCache();
-            }
-        });
-    }
-
-    private setupGuardianRoutes(): void {
-        this.app.get('/guardian/status', (req, res) => {
-            if (!this.guardian) {
-                return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
-            }
-            res.json({
-                status: 200,
-                enabled: true,
-                guardianStatus: this.guardian.getStatus(),
-                processInfo: this.guardian.getProcessInfo(),
-                checkpoints: this.guardian.getCheckpoints(),
-                reports: this.guardian.getReportsList()
-            });
-        });
-
-        this.app.get('/guardian/logs', (req, res) => {
-            if (!this.guardian) {
-                return res.json({ status: 200, logs: [] });
-            }
-            const lines = parseInt(req.query.lines as string) || 100;
-            const buffer = this.guardian.getLogBuffer();
-            res.json({ status: 200, logs: buffer.slice(-lines) });
-        });
-
-        this.app.get('/guardian/reports', (req, res) => {
-            if (!this.guardian) {
-                return res.json({ status: 200, reports: [] });
-            }
-            res.json({ status: 200, reports: this.guardian.getReportsList() });
-        });
+        );
     }
 
     private setupPluginRoutes(): void {
+        this.app.use((req, res, next) => {
+            const match = req.path.match(/^\/plugins\/([^/]+)\/files\/(.+)/);
+            if (match) {
+                try {
+                    const [, pluginId, filePath] = match;
+                    const pluginDir = this.pluginManager.getPluginsDir();
+                    const fullPath = path.join(pluginDir, decodeURIComponent(pluginId), decodeURIComponent(filePath));
+                    if (fs.existsSync(fullPath)) {
+                        const realPath = path.resolve(fullPath);
+                        const pluginRoot = path.resolve(path.join(pluginDir, decodeURIComponent(pluginId)));
+                        if (!realPath.startsWith(pluginRoot)) {
+                            return res.status(403).json({ status: 403, message: "禁止访问" });
+                        }
+                        const ext = path.extname(fullPath).toLowerCase();
+                        const mimeMap: Record<string, string> = {
+                            '.css': 'text/css; charset=utf-8',
+                            '.js': 'application/javascript; charset=utf-8',
+                            '.json': 'application/json; charset=utf-8',
+                            '.html': 'text/html; charset=utf-8',
+                            '.png': 'image/png',
+                            '.jpg': 'image/jpeg',
+                            '.svg': 'image/svg+xml',
+                        };
+                        res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+                        return res.sendFile(fullPath);
+                    }
+                } catch {}
+            }
+            next();
+        });
+
         this.app.use("/plugins", this.pluginRouter);
 
         this.pluginRouter.get("/", (req, res) => {
@@ -922,9 +995,33 @@ export class Core {
             }
         });
 
+        this.pluginRouter.get("/injections", (req, res) => {
+            try {
+                const plugins = this.pluginManager.getPlugins();
+                const injections: Array<{ pluginId: string; css: string[]; js: string[] }> = [];
+                for (const p of plugins) {
+                    if (!p.enabled) continue;
+                    const m = p.manifest;
+                    if ((m.injectCSS && m.injectCSS.length > 0) || (m.injectJS && m.injectJS.length > 0)) {
+                        injections.push({
+                            pluginId: m.id,
+                            css: (m.injectCSS || []).map(f => `/plugins/${m.id}/files/${f}`),
+                            js: (m.injectJS || []).map(f => `/plugins/${m.id}/files/${f}`),
+                        });
+                    }
+                }
+                res.json({ status: 200, data: injections });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/injections 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取注入列表失败" });
+            }
+        });
+
         this.pluginRouter.get("/:id", (req, res) => {
             try {
                 const { id } = req.params;
+
                 const plugin = this.pluginManager.getPlugin(id);
                 if (!plugin) {
                     return res.status(404).json({ status: 404, message: "插件不存在" });
@@ -1033,18 +1130,133 @@ export class Core {
             }
         });
 
+        this.pluginRouter.get("/folder", async (req, res) => {
+            try {
+                const { exec } = await import('child_process');
+                const pluginsDir = this.pluginManager.getPluginsDir();
+                const platform = process.platform;
+                let command: string;
+
+                if (platform === 'win32') {
+                    command = `explorer "${pluginsDir}"`;
+                } else if (platform === 'darwin') {
+                    command = `open "${pluginsDir}"`;
+                } else {
+                    command = `xdg-open "${pluginsDir}"`;
+                }
+
+                exec(command, (error) => {
+                    if (error) {
+                        logger.error("打开插件文件夹失败", error);
+                        return res.status(500).json({ status: 500, message: "打开文件夹失败" });
+                    }
+                    res.json({
+                        status: 200,
+                        message: "文件夹已打开"
+                    });
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/folder 路由错误", error);
+                res.status(500).json({ status: 500, message: "打开文件夹失败" });
+            }
+        });
+
+        // DEXP 加密插件文件格式：
+        // [4 bytes] MAGIC "DEXP"
+        // [1 byte]  模式 (0=公开, 1=私有)
+        // [16 bytes] IV
+        // [N bytes] AES-256-CBC 加密数据
+        const DEXP_MAGIC = Buffer.from("DEXP");
+        const DEXP_HEADER_SIZE = 4 + 1 + 16; // 21
+
+        function parseDexpHeader(buffer: Buffer): { mode: number; iv: Buffer; data: Buffer } | null {
+            if (buffer.length < DEXP_HEADER_SIZE) return null;
+            if (!buffer.subarray(0, 4).equals(DEXP_MAGIC)) return null;
+            const mode = buffer[4];
+            const iv = buffer.subarray(5, 5 + 16);
+            const data = buffer.subarray(DEXP_HEADER_SIZE);
+            return { mode, iv, data };
+        }
+
+        function deriveDexpKey(password: string): Buffer {
+            return crypto.createHash("sha256").update(password, "utf-8").digest();
+        }
+
+        function decryptDexp(buffer: Buffer, password: string): Buffer | null {
+            const header = parseDexpHeader(buffer);
+            if (!header) return null;
+
+            const key = deriveDexpKey(password);
+            const decipher = crypto.createDecipheriv("aes-256-cbc", key, header.iv);
+            decipher.setAutoPadding(true);
+
+            try {
+                const decrypted = Buffer.concat([decipher.update(header.data), decipher.final()]);
+                if (decrypted.length < 4 || decrypted.readUInt16BE(0) !== 0x504b) {
+                    return null; // 不是有效的 ZIP
+                }
+                return decrypted;
+            } catch {
+                return null;
+            }
+        }
+
+        function encryptDexp(buffer: Buffer, password: string, mode: number): Buffer {
+            const key = deriveDexpKey(password);
+            const iv = crypto.randomBytes(16);
+            const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+            const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+
+            const header = Buffer.alloc(DEXP_HEADER_SIZE);
+            DEXP_MAGIC.copy(header, 0);
+            header[4] = mode;
+            iv.copy(header, 5);
+
+            return Buffer.concat([header, encrypted]);
+        }
+
         this.pluginRouter.post("/install", this.upload.single("file"), async (req, res) => {
             try {
                 if (!req.file) {
                     return res.status(400).json({ status: 400, message: "未上传文件" });
                 }
 
-                const fileExtension = req.file.originalname.toLowerCase().substring(req.file.originalname.lastIndexOf('.'));
-                if (fileExtension !== '.zip') {
-                    return res.status(400).json({ status: 400, message: "只支持 .zip 文件" });
+                const buffer = req.file.buffer;
+
+                // 检查是否为 DEXP 加密格式
+                if (buffer.length >= 4 && buffer.subarray(0, 4).equals(DEXP_MAGIC)) {
+                    const header = parseDexpHeader(buffer);
+                    if (!header) {
+                        return res.status(400).json({ status: 400, message: "无效的 DEXP 文件" });
+                    }
+
+                    if (header.mode === 0) {
+                        // 公开加密：自动解密
+                        const decrypted = decryptDexp(buffer, "DeEarthX-CE");
+                        if (!decrypted) {
+                            return res.status(400).json({ status: 400, message: "DEXP 解密失败" });
+                        }
+
+                        const pluginId = await this.pluginManager.installPlugin(decrypted);
+                        if (!pluginId) {
+                            return res.status(400).json({ status: 400, message: "插件安装失败" });
+                        }
+                        this.pluginManager.writeGlobalPluginConfigs();
+                        return res.json({ status: 200, message: "插件安装成功", data: { id: pluginId } });
+                    } else {
+                        // 私有加密：返回需要密码
+                        return res.json({ status: 400, message: "需要密码解密", requirePassword: true });
+                    }
                 }
 
-                const pluginId = await this.pluginManager.installPlugin(req.file.buffer);
+                // 普通 ZIP 安装
+                const fileExtension = req.file.originalname.toLowerCase().substring(req.file.originalname.lastIndexOf('.'));
+                if (fileExtension !== '.zip') {
+                    return res.status(400).json({ status: 400, message: "只支持 .zip 或 .dxp 文件" });
+                }
+
+                const pluginId = await this.pluginManager.installPlugin(buffer);
                 if (!pluginId) {
                     return res.status(400).json({ status: 400, message: "插件安装失败，请检查插件包格式" });
                 }
@@ -1055,6 +1267,36 @@ export class Core {
                 const error = err as Error;
                 logger.error("/plugins/install 路由错误", error);
                 res.status(500).json({ status: 500, message: "安装插件失败" });
+            }
+        });
+
+        this.pluginRouter.post("/install-encrypted", this.upload.single("file"), async (req, res) => {
+            try {
+                if (!req.file) {
+                    return res.status(400).json({ status: 400, message: "未上传文件" });
+                }
+
+                const password = req.body?.password as string;
+                if (!password) {
+                    return res.status(400).json({ status: 400, message: "请提供解密密码" });
+                }
+
+                const decrypted = decryptDexp(req.file.buffer, password);
+                if (!decrypted) {
+                    return res.status(400).json({ status: 400, message: "解密失败，请检查密码是否正确" });
+                }
+
+                const pluginId = await this.pluginManager.installPlugin(decrypted);
+                if (!pluginId) {
+                    return res.status(400).json({ status: 400, message: "插件安装失败" });
+                }
+
+                this.pluginManager.writeGlobalPluginConfigs();
+                res.json({ status: 200, message: "加密插件安装成功", data: { id: pluginId } });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/install-encrypted 路由错误", error);
+                res.status(500).json({ status: 500, message: "导入加密插件失败" });
             }
         });
 
@@ -1101,6 +1343,47 @@ export class Core {
             }
         });
 
+        this.pluginRouter.post("/:id/export-encrypted", async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { mode, password, rememberPassword } = req.body || {};
+
+                const zipBuffer = await this.pluginManager.exportPlugin(id);
+                if (!zipBuffer) {
+                    return res.status(404).json({ status: 404, message: "插件不存在" });
+                }
+
+                if (mode === 'private') {
+                    if (!password || !/^[a-zA-Z0-9]+$/.test(password)) {
+                        return res.status(400).json({ status: 400, message: "密码仅能包含大小写字母和数字" });
+                    }
+                    const encrypted = encryptDexp(zipBuffer, password, 1);
+                    const plugin = this.pluginManager.getPlugin(id);
+                    const name = plugin ? plugin.manifest.name : id;
+                    const tempPath = path.join(getAppDir(), `${name}-encrypted-${Date.now()}.dxp`);
+                    fs.writeFileSync(tempPath, encrypted);
+                    res.download(tempPath, `${name}.dxp`, (err) => {
+                        fs.unlink(tempPath, () => {});
+                        if (err) logger.error(`加密导出失败: ${err.message}`);
+                    });
+                } else {
+                    const encrypted = encryptDexp(zipBuffer, "DeEarthX-CE", 0);
+                    const plugin = this.pluginManager.getPlugin(id);
+                    const name = plugin ? plugin.manifest.name : id;
+                    const tempPath = path.join(getAppDir(), `${name}-public-${Date.now()}.dxp`);
+                    fs.writeFileSync(tempPath, encrypted);
+                    res.download(tempPath, `${name}.dxp`, (err) => {
+                        fs.unlink(tempPath, () => {});
+                        if (err) logger.error(`公开加密导出失败: ${err.message}`);
+                    });
+                }
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugins/:id/export-encrypted 路由错误", error);
+                res.status(500).json({ status: 500, message: "加密导出失败" });
+            }
+        });
+
         this.pluginRouter.get("/:id/sidebar", (req, res) => {
             try {
                 const { id } = req.params;
@@ -1122,7 +1405,67 @@ export class Core {
             }
         });
 
-        this.pluginManager.setupPluginRoutes(this.pluginRouter);
+        this.pluginManager.setupPluginRoutes(this.pluginRouter, this.app);
+
+        this.app.get("/plugin-page/:pluginId/:pageKey", async (req, res) => {
+            try {
+                const { pluginId, pageKey } = req.params;
+                const pluginDir = this.pluginManager.getPluginsDir();
+                const plugin = this.pluginManager.getPlugin(pluginId);
+
+                if (!plugin) {
+                    return res.status(404).json({ status: 404, message: "插件不存在", data: { pluginId, pageKey } });
+                }
+
+                const possiblePaths = [
+                    path.join(pluginDir, pluginId, "frontend", `${pageKey}.html`),
+                    path.join(pluginDir, pluginId, "frontend", pageKey, "index.html"),
+                ];
+
+                for (const filePath of possiblePaths) {
+                    if (fs.existsSync(filePath)) {
+                        const ext = path.extname(filePath).toLowerCase();
+                        const mimeMap: Record<string, string> = {
+                            '.html': 'text/html; charset=utf-8',
+                            '.htm': 'text/html; charset=utf-8',
+                        };
+                        res.setHeader('Content-Type', mimeMap[ext] || 'text/html; charset=utf-8');
+                        res.sendFile(filePath);
+                        return;
+                    }
+                }
+
+                const manifest = plugin.manifest;
+                const sidebarItem = (manifest.sidebarItems || []).find((s: any) => s.key === pageKey || s.route === pageKey);
+
+                const pageInfo = {
+                    title: sidebarItem?.label || manifest.name,
+                    pluginId: manifest.id,
+                    pluginName: manifest.name,
+                    pluginAuthor: manifest.author,
+                    pluginVersion: manifest.version,
+                    pageKey,
+                    description: manifest.description || "",
+                    hasFrontend: false,
+                    defaultConfig: manifest.defaultConfig || {}
+                };
+
+                res.json({ status: 200, data: pageInfo });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/plugin-page 路由错误", error);
+                res.status(500).json({ status: 500, message: "加载插件页面失败" });
+            }
+        });
+    }
+
+    private setupDownloadRoutes(): void {
+        import("./routes/download.js").then(({ setupDownloadRoutes }) => {
+            setupDownloadRoutes(this.app);
+        });
+        import("./routes/download-install.js").then(({ setupInstallRoute }) => {
+            setupInstallRoute(this.app);
+        });
     }
 
     public async start() {
@@ -1133,6 +1476,8 @@ export class Core {
         this.server.listen(port, host, async () => {
             logger.info(`服务器正在运行于 http://${host}:${port}`);
             await this.pluginManager.initialize(this.io);
+            this.registerBuiltinGuardianPlugin();
+            this.pluginManager.setupPluginRoutes(this.pluginRouter, this.app);
             this.pluginManager.setupPluginSocketHandlers(this.io);
             await this.javachecker();
         });

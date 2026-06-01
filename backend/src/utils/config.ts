@@ -16,6 +16,8 @@ export interface IConfig {
     dexpub: boolean;
     mixins: boolean;
     modrinth: boolean;
+    mcmodFilter?: boolean;
+    aiFilter?: boolean;
   };
   oaf: boolean;
   autoZip: boolean;
@@ -50,6 +52,8 @@ const DEFAULT_CONFIG: IConfig = {
     dexpub: true,
     mixins: true,
     modrinth: false,
+    mcmodFilter: false,
+    aiFilter: false,
   },
   oaf: true,
   autoZip: false,
@@ -174,7 +178,9 @@ export class Config {
         hashes: getEnv('DEEARTHX_FILTER_HASHES', config.filter.hashes),
         dexpub: getEnv('DEEARTHX_FILTER_DEXPUB', config.filter.dexpub),
         mixins: getEnv('DEEARTHX_FILTER_MIXINS', config.filter.mixins),
-        modrinth: getEnv('DEEARTHX_FILTER_MODRINTH', config.filter.modrinth)
+        modrinth: getEnv('DEEARTHX_FILTER_MODRINTH', config.filter.modrinth),
+        mcmodFilter: getEnv('DEEARTHX_FILTER_MCMOD', config.filter.mcmodFilter || false),
+        aiFilter: getEnv('DEEARTHX_FILTER_AI', config.filter.aiFilter || false),
       },
       oaf: getEnv('DEEARTHX_OAF', config.oaf),
       autoZip: getEnv('DEEARTHX_AUTO_ZIP', config.autoZip),

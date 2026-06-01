@@ -46,6 +46,7 @@ const stepItems = computed<Required<StepsProps>['items']>(() => {
 const uploadedFiles = ref<UploadFile[]>([]);
 const uploadDisabled = ref(false);
 const startButtonDisabled = ref(false);
+const selectedFileName = ref<string>('');
 
 // 阻止默认上传行为
 function beforeUpload() {
@@ -56,6 +57,7 @@ function beforeUpload() {
 function handleFileChange(info: UploadChangeParam) {
     if (info.file.status === 'removed') {
         uploadDisabled.value = false;
+        selectedFileName.value = '';
         return;
     }
 
@@ -73,6 +75,7 @@ function handleFileChange(info: UploadChangeParam) {
         return;
     }
     uploadDisabled.value = true;
+    selectedFileName.value = info.file.name;
 }
 
 // 处理文件拖拽（预留功能）
@@ -90,10 +93,16 @@ function resetState() {
     uploadedFiles.value = [];
     uploadDisabled.value = false;
     startButtonDisabled.value = false;
+    selectedFileName.value = '';
     showSteps.value = false;
     currentStep.value = 0;
     unzipProgress.value = { status: 'active', percent: 0, display: true };
     downloadProgress.value = { status: 'active', percent: 0, display: true };
+    downloadCompleted.value = 0;
+    downloadTotal.value = 0;
+    lastDownloadUpdateTime = 0;
+    _downloadPendingIndex = 0;
+    _downloadPendingTotal = 0;
     const killCoreProcess = inject("killCoreProcess");
     if (killCoreProcess && typeof killCoreProcess === 'function') {
         killCoreProcess();
@@ -187,6 +196,11 @@ interface ProgressStatus {
 const unzipProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
 const downloadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
 const downloadDescription = ref('');
+const downloadCompleted = ref(0);
+const downloadTotal = ref(0);
+let lastDownloadUpdateTime = 0;
+let _downloadPendingIndex = 0;
+let _downloadPendingTotal = 0;
 const uploadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const serverInstallProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
 const filterModsProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
@@ -415,11 +429,21 @@ function updateUnzipProgress(result: { current: number; total: number }) {
 
 // 更新下载进度
 function updateDownloadProgress(result: { index: number; total: number; name?: string }) {
-    downloadProgress.value.percent = Math.round((result.index / result.total) * 100);
-    if (result.name) {
-        downloadDescription.value = result.name;
-    }
-    if (downloadProgress.value.percent === 100) {
+    _downloadPendingIndex = result.index;
+    _downloadPendingTotal = result.total;
+
+    const now = Date.now();
+    if (now - lastDownloadUpdateTime < 3000 && _downloadPendingIndex < _downloadPendingTotal) return;
+    lastDownloadUpdateTime = now;
+
+    _flushDownloadProgress();
+}
+
+function _flushDownloadProgress() {
+    downloadCompleted.value = Math.max(downloadCompleted.value, _downloadPendingIndex);
+    downloadTotal.value = _downloadPendingTotal;
+    downloadProgress.value.percent = Math.round((downloadCompleted.value / _downloadPendingTotal) * 100);
+    if (downloadProgress.value.percent >= 100) {
         downloadProgress.value.status = 'success';
         setTimeout(() => {
             downloadProgress.value.display = false;
@@ -706,7 +730,7 @@ onUnmounted(() => {
                 </div>
                 <a-upload-dragger :disabled="uploadDisabled" class="tw:w-full tw:max-w-md tw:h-48" name="file"
                     action="/" :multiple="false" :before-upload="beforeUpload" @change="handleFileChange"
-                    @drop="handleFileDrop" v-model:fileList="uploadedFiles" accept=".zip,.mrpack">
+                    @drop="handleFileDrop" v-model:fileList="uploadedFiles" :show-upload-list="false" accept=".zip,.mrpack">
                     <p class="ant-upload-drag-icon">
                         <inbox-outlined></inbox-outlined>
                     </p>
@@ -715,6 +739,9 @@ onUnmounted(() => {
                         {{ t('home.upload_hint') }}
                     </p>
                 </a-upload-dragger>
+                <div v-if="selectedFileName" class="tw:mt-3 tw:px-4 tw:py-2 tw:bg-green-50 tw:border tw:border-green-300 tw:rounded-lg tw:text-green-700 tw:text-sm tw:font-medium tw:text-center">
+                    已选择：{{ selectedFileName }}
+                </div>
                 <div class="tw:flex tw:items-center tw:gap-2 tw:mt-8">
                     <a-select ref="select" :options="modeOptions" :value="selectedMode"
                         style="width: 120px;" @select="handleModeSelect"></a-select>
@@ -758,8 +785,8 @@ onUnmounted(() => {
                 <div v-if="downloadProgress.display" class="tw:mb-4">
                     <h1 class="tw:text-sm">{{ t('home.download_progress') }}</h1>
                     <a-progress :percent="downloadProgress.percent" :status="downloadProgress.status" size="small" />
-                    <div v-if="downloadDescription" class="tw:text-xs tw:text-gray-400 tw:mt-1 tw:truncate">
-                        {{ downloadDescription }}
+                    <div class="tw:text-xs tw:text-gray-400 tw:mt-1">
+                        下载 {{ downloadCompleted }}/{{ downloadTotal }}
                     </div>
                 </div>
                 <div v-if="serverInstallProgress.display" class="tw:mb-4">
