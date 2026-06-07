@@ -859,10 +859,6 @@ export class Core {
                 description: "AI 驱动的 Minecraft 服务端崩溃检测与自动修复系统。监控服务端运行状态，智能识别崩溃原因，自动执行修复操作。",
                 openSource: true,
                 sourceUrl: "https://github.com/DeEarthX-CE",
-                hasSidebar: true,
-                sidebarItems: [
-                    { key: "guardian-main", label: "AI 模式", route: "guardian-main" }
-                ],
                 defaultConfig: {
                     aiProvider: "openai",
                     aiApiKey: "",

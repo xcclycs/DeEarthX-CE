@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { inject, ref, onMounted, computed, onUnmounted } from 'vue';
 import { InboxOutlined } from '@ant-design/icons-vue';
+import { useRouter } from 'vue-router';
 import { message, notification, StepsProps } from 'ant-design-vue';
 import type { UploadFile, UploadChangeParam } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
@@ -8,6 +9,7 @@ import { SelectProps } from 'ant-design-vue/es/vc-select';
 import { useI18n } from 'vue-i18n';
 import { getSocketIO, disconnectSocket } from '../utils/socket';
 
+const router = useRouter();
 const { t } = useI18n();
 
 interface Template {
@@ -116,6 +118,8 @@ function resetState() {
     selectedFileName.value = '';
     showSteps.value = false;
     currentStep.value = 0;
+    showGuardianLaunch.value = false;
+    serverInstallPath.value = '';
     unzipProgress.value = { status: 'active', percent: 0, display: true };
     downloadProgress.value = { status: 'active', percent: 0, display: true };
     downloadCompleted.value = 0;
@@ -524,12 +528,19 @@ function handleServerInstallProgress(result: any) {
 }
 
 // 处理服务端安装完成
+const serverInstallPath = ref('');
+const showGuardianLaunch = ref(false);
+
 function handleServerInstallComplete(result: any) {
     serverInstallInfo.value.status = 'completed';
     serverInstallInfo.value.installPath = result.installPath;
     serverInstallInfo.value.duration = result.duration;
     serverInstallInfo.value.message = t('home.server_install_completed');
     serverInstallProgress.value = { status: 'success', percent: 100, display: true };
+    
+    // 存储安装路径，启用 AI 模式启动按钮
+    serverInstallPath.value = result.installPath;
+    showGuardianLaunch.value = true;
     
     // 跳转到完成步骤
     currentStep.value++;
@@ -538,12 +549,18 @@ function handleServerInstallComplete(result: any) {
     message.success(t('home.server_install_completed') + ` ${t('home.server_install_duration')}: ${timeSpent}s`);
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
     
-    // 8秒后隐藏进度
+    // 8秒后隐藏进度（但保留 AI 模式启动按钮）
     setTimeout(() => {
         serverInstallProgress.value.display = false;
         updateWindowProgress();
     }, 8000);
     updateWindowProgress();
+}
+
+function launchGuardianWithServer() {
+    if (serverInstallPath.value) {
+        router.push(`/guardian?workDir=${encodeURIComponent(serverInstallPath.value)}`);
+    }
 }
 
 // 处理服务端安装错误
@@ -881,6 +898,23 @@ onUnmounted(() => {
                     </div>
                 </div>
             </a-card>
+        </div>
+        
+        <div v-if="showGuardianLaunch"
+            class="tw:fixed tw:bottom-24 tw:left-1/2 tw:-translate-x-1/2 tw:w-[65%] tw:flex tw:justify-center tw:items-center tw:gap-4 tw:py-3 tw:px-4 tw:bg-white tw:rounded-xl tw:shadow-lg tw:z-20">
+            <div class="tw:flex tw:items-center tw:gap-3">
+                <span class="tw:text-sm tw:text-gray-600">{{ t('home.guardian_launch_hint') }}</span>
+                <a-button type="primary" @click="launchGuardianWithServer" :disabled="!javaAvailable">
+                    {{ t('home.guardian_launch_button') }}
+                </a-button>
+                <a-button v-if="javaInstalling" disabled size="small">
+                    <template #icon><span class="tw:inline-block tw:animate-spin">⟳</span></template>
+                    {{ t('home.java_installing_title') }}
+                </a-button>
+                <span v-if="!javaAvailable && !javaInstalling" class="tw:text-xs tw:text-red-500">
+                    {{ t('home.java_not_found') }}
+                </span>
+            </div>
         </div>
         
         <a-modal v-model:open="showTemplateModal" :title="t('home.template_select_title')" :footer="null" width="700px">

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { h, ref, onMounted, onUnmounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import {
   message, notification, Modal, Tag, Card, Button, Switch, Select,
@@ -14,6 +15,7 @@ import {
 import { getSocketIO, disconnectSocket } from '../utils/socket';
 
 const { t } = useI18n();
+const route = useRoute();
 
 let _logIdCounter = 0;
 let _statusRefreshTimer: number | null = null;
@@ -29,6 +31,8 @@ const launchWorkDir = ref<string>('');
 const launchJavaCmd = ref<string>('');
 const launchServerType = ref<string>('forge');
 const launchModalVisible = ref(false);
+const checkingJava = ref(false);
+const javaCheckResult = ref<{ available: boolean; version?: string; error?: string } | null>(null);
 
 function loadStoredConfig<T>(key: string, fallback: T): T {
   try {
@@ -558,10 +562,65 @@ const riskColorMap: Record<string, string> = {
   critical: 'red'
 };
 
+async function checkJavaAndLaunch() {
+  checkingJava.value = true;
+  javaCheckResult.value = null;
+  try {
+    const apiHost = import.meta.env.VITE_API_HOST || 'localhost';
+    const apiPort = import.meta.env.VITE_API_PORT || '37019';
+    const response = await fetch(`http://${apiHost}:${apiPort}/java/status`);
+    const result = await response.json();
+    if (result.status === 200 && result.data) {
+      if (result.data.installed) {
+        javaCheckResult.value = { available: true };
+        launchModalVisible.value = true;
+      } else if (result.data.installing) {
+        javaCheckResult.value = { available: false, error: 'Java 正在安装中，请稍候...' };
+        // 轮询等待 Java 安装完成
+        const pollInterval = setInterval(async () => {
+          try {
+            const pollResponse = await fetch(`http://${apiHost}:${apiPort}/java/status`);
+            const pollResult = await pollResponse.json();
+            if (pollResult.status === 200 && pollResult.data) {
+              if (pollResult.data.installed) {
+                clearInterval(pollInterval);
+                javaCheckResult.value = { available: true };
+                launchModalVisible.value = true;
+              } else if (!pollResult.data.installing) {
+                clearInterval(pollInterval);
+                javaCheckResult.value = { available: false, error: pollResult.data.error || 'Java 安装失败' };
+              }
+            }
+          } catch {
+            clearInterval(pollInterval);
+          }
+        }, 3000);
+      } else {
+        javaCheckResult.value = { available: false, error: result.data.error || 'Java 未安装' };
+      }
+    } else {
+      javaCheckResult.value = { available: false, error: '无法获取 Java 状态' };
+    }
+  } catch {
+    javaCheckResult.value = { available: false, error: '无法连接后端服务' };
+  } finally {
+    checkingJava.value = false;
+  }
+}
+
 onMounted(() => {
   connectSocketIO();
   if (!_statusRefreshTimer) {
     _statusRefreshTimer = window.setInterval(fetchGuardianStatus, 5000);
+  }
+  
+  // 从首页打包完成后跳转，自动填充工作目录
+  const queryWorkDir = route.query.workDir as string;
+  if (queryWorkDir) {
+    launchWorkDir.value = queryWorkDir;
+    launchJavaCmd.value = 'java';
+    // 自动检查 Java 并打开启动对话框
+    checkJavaAndLaunch();
   }
 });
 
