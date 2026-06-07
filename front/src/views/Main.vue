@@ -84,8 +84,28 @@ function handleFileDrop(e: DragEvent) {
 }
 
 // 初始化
-onMounted(() => {
+onMounted(async () => {
     // stepItems 和 modeOptions 都是 computed，会自动初始化
+    
+    // 检查 Java 安装状态
+    try {
+        const apiHost = import.meta.env.VITE_API_HOST || 'localhost';
+        const apiPort = import.meta.env.VITE_API_PORT || '37019';
+        const response = await fetch(`http://${apiHost}:${apiPort}/java/status`);
+        const result = await response.json();
+        if (result.status === 200 && result.data) {
+            if (result.data.installing) {
+                javaInstalling.value = true;
+                javaInstallMessage.value = '正在自动安装 Java 21...';
+            } else if (result.data.installed) {
+                javaAvailable.value = true;
+            } else if (result.data.error) {
+                javaAvailable.value = false;
+            }
+        }
+    } catch (e) {
+        // 后端可能还没启动，忽略错误
+    }
 });
 
 // 重置所有状态
@@ -111,6 +131,9 @@ function resetState() {
 
 // 模式选择相关
 const javaAvailable = ref(true);
+const javaInstalling = ref(false);
+const javaInstallProgress = ref(0);
+const javaInstallMessage = ref('');
 const selectedMode = ref(javaAvailable.value ? 'server' : 'upload');
 
 // 模式选项（使用computed自动响应语言变化）
@@ -330,12 +353,8 @@ async function runDeEarthX(file: File) {
 // 处理错误消息
 function handleError(result: any) {
     if (result === 'jini') {
-        javaAvailable.value = false;
-        notification.error({
-            message: t('home.java_error_title'),
-            description: t('home.java_error_desc'),
-            duration: 0
-        });
+        // Java 错误现在由自动安装处理，不再立即禁用
+        return;
     } else if (typeof result === 'string') {
         // 根据错误类型提供不同的解决方案
         let errorTitle = t('home.backend_error');
@@ -647,6 +666,35 @@ function handleStartProcess() {
         }
     });
 
+    socket.on('java_install', (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            if (parsed.stage === 'completed') {
+                javaInstalling.value = false;
+                javaAvailable.value = true;
+                javaInstallProgress.value = 100;
+                javaInstallMessage.value = parsed.message || 'Java 21 安装完成';
+                message.success(parsed.message || 'Java 21 安装完成');
+            } else if (parsed.stage === 'error') {
+                javaInstalling.value = false;
+                javaAvailable.value = false;
+                javaInstallProgress.value = 0;
+                javaInstallMessage.value = parsed.message || 'Java 21 安装失败';
+                notification.error({
+                    message: t('home.java_error_title'),
+                    description: parsed.message || t('home.java_error_desc'),
+                    duration: 0
+                });
+            } else {
+                javaInstalling.value = true;
+                javaInstallProgress.value = parsed.progress || 0;
+                javaInstallMessage.value = parsed.message || '';
+            }
+        } catch {
+            // ignore parse errors
+        }
+    });
+
     socket.on('changed', () => {
         currentStep.value++;
     });
@@ -728,7 +776,15 @@ onUnmounted(() => {
                     <h1 class="tw:text-4xl tw:text-center tw:animate-pulse">{{ t('common.app_name') }}</h1>
                     <h1 class="tw:text-sm tw:text-gray-500 tw:text-center">{{ t('home.title') }}</h1>
                 </div>
-                <a-upload-dragger :disabled="uploadDisabled" class="tw:w-full tw:max-w-md tw:h-48" name="file"
+                <div v-if="javaInstalling" class="tw:w-full tw:max-w-md tw:mb-4 tw:px-4 tw:py-3 tw:bg-blue-50 tw:border tw:border-blue-300 tw:rounded-lg">
+                    <div class="tw:flex tw:items-center tw:gap-2 tw:mb-2">
+                        <a-spin size="small" />
+                        <span class="tw:text-sm tw:text-blue-700 tw:font-medium">{{ t('home.java_installing_title') }}</span>
+                    </div>
+                    <a-progress :percent="javaInstallProgress" :status="javaInstallProgress >= 100 ? 'success' : 'active'" size="small" />
+                    <div class="tw:text-xs tw:text-blue-600 tw:mt-1">{{ javaInstallMessage }}</div>
+                </div>
+                <a-upload-dragger :disabled="uploadDisabled || javaInstalling" class="tw:w-full tw:max-w-md tw:h-48" name="file"
                     action="/" :multiple="false" :before-upload="beforeUpload" @change="handleFileChange"
                     @drop="handleFileDrop" v-model:fileList="uploadedFiles" :show-upload-list="false" accept=".zip,.mrpack">
                     <p class="ant-upload-drag-icon">

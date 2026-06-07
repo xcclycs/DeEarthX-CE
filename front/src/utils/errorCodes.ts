@@ -103,9 +103,9 @@ export const errorSuggestions: Record<ErrorCode, string[]> = {
     '检查磁盘空间是否充足'
   ],
   [ErrorCode.JAVA_NOT_FOUND]: [
-    '安装 Java 17 或更高版本',
-    '配置 Java 环境变量',
-    '重启应用程序'
+    'Java 将在启动时自动安装（Java 21），请等待自动安装完成',
+    '如果自动安装失败，请手动安装 Java 17 或更高版本',
+    '配置 Java 环境变量后重启应用程序'
   ],
   [ErrorCode.DISK_SPACE_INSUFFICIENT]: [
     '清理磁盘空间',
