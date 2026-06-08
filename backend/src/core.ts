@@ -4,7 +4,7 @@ import cors from "cors"
 import { createServer, Server as HTTPServer } from "node:http";
 import { Config, IConfig } from "./utils/config.js";
 import { Dex } from "./Dex.js";
-import { logger } from "./utils/logger.js";
+import { logger, getLogFilePath, getLogsDir, getLogFileContent, listLogFiles } from "./utils/logger.js";
 import { checkJava, JavaCheckResult, detectJavaPaths, getAppDir } from "./utils/utils.js";
 import { Galaxy } from "./galaxy.js";
 import { GuardianController } from "./guardian/index.js";
@@ -118,6 +118,7 @@ export class Core {
         this.setupTemplateRoutes();
         this.setupPluginRoutes();
         this.setupDownloadRoutes();
+        this.setupLogRoutes();
     }
 
     private setupMiddleware() {
@@ -1455,6 +1456,72 @@ export class Core {
                 const error = err as Error;
                 logger.error("/plugin-page 路由错误", error);
                 res.status(500).json({ status: 500, message: "加载插件页面失败" });
+            }
+        });
+    }
+
+    private setupLogRoutes(): void {
+        // 获取日志文件列表
+        this.app.get('/logs/list', async (req, res) => {
+            try {
+                const files = await listLogFiles();
+                res.json({ status: 200, data: files });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/logs/list 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取日志列表失败" });
+            }
+        });
+
+        // 获取日志内容（支持 ?lines=100 参数）
+        this.app.get('/logs/content', async (req, res) => {
+            try {
+                const lines = parseInt(req.query.lines as string) || 0;
+                const content = await getLogFileContent(lines > 0 ? lines : undefined);
+                res.json({ status: 200, data: content });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/logs/content 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取日志内容失败" });
+            }
+        });
+
+        // 下载日志文件
+        this.app.get('/logs/download', async (req, res) => {
+            try {
+                const filename = req.query.file as string;
+                const logFilePath = filename 
+                    ? path.join(getLogsDir(), filename)
+                    : getLogFilePath();
+
+                // 安全检查：确保文件在日志目录内
+                const resolvedPath = path.resolve(logFilePath);
+                const resolvedLogsDir = path.resolve(getLogsDir());
+                if (!resolvedPath.startsWith(resolvedLogsDir)) {
+                    return res.status(403).json({ status: 403, message: "禁止访问" });
+                }
+
+                if (!fs.existsSync(logFilePath)) {
+                    return res.status(404).json({ status: 404, message: "日志文件不存在" });
+                }
+
+                const downloadName = filename || path.basename(getLogFilePath());
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+                res.sendFile(logFilePath);
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/logs/download 路由错误", error);
+                res.status(500).json({ status: 500, message: "下载日志失败" });
+            }
+        });
+
+        // 获取日志目录路径
+        this.app.get('/logs/path', (req, res) => {
+            try {
+                res.json({ status: 200, data: { path: getLogsDir(), currentFile: getLogFilePath() } });
+            } catch (err) {
+                res.status(500).json({ status: 500, message: "获取日志路径失败" });
             }
         });
     }

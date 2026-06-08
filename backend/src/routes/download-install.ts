@@ -134,8 +134,9 @@ export async function performInstall(
     ws?.serverInstallComplete(installPath, duration);
     logger.info(`安装完成: ${installPath}, 耗时 ${duration}ms`);
   } catch (err) {
-    logger.error("安装失败", err as Error);
-    ws?.serverInstallError((err as Error).message);
+    const error = err as Error;
+    logger.error("安装失败", error);
+    ws?.serverInstallError(error.message, undefined, error.stack || '');
     throw err;
   }
 }

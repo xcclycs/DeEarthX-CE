@@ -35,6 +35,7 @@ interface ServerInstallInfo {
   message: string;
   status: 'idle' | 'installing' | 'completed' | 'error';
   error: string;
+  errorDetails: string;
   installPath: string;
   duration: number;
 }
@@ -101,7 +102,7 @@ export function useDownload() {
   const serverInstallInfo = reactive<ServerInstallInfo>({
     modpackName: '', minecraftVersion: '', loaderType: '', loaderVersion: '',
     currentStep: '', stepIndex: 0, totalSteps: 0, message: '',
-    status: 'idle', error: '', installPath: '', duration: 0
+    status: 'idle', error: '', errorDetails: '', installPath: '', duration: 0
   });
 
   let socket: Socket | null = null;
@@ -119,7 +120,12 @@ export function useDownload() {
           (v: MinecraftVersion) => v.type === 'release'
         );
       }
-    } catch { mcVersions.value = []; }
+    } catch (err: any) {
+      mcVersions.value = [];
+      const details = err?.response?.data?.details || err?.message || '';
+      serverInstallInfo.error = t('download.install_failed');
+      serverInstallInfo.errorDetails = `获取 Minecraft 版本列表失败: ${details}`;
+    }
     finally { loadingMcVersions.value = false; }
   }
 
@@ -127,7 +133,12 @@ export function useDownload() {
     try {
       const res = await axiosInstance.get('/download/forge-promos');
       if (res.data) forgePromos.value = res.data;
-    } catch { forgePromos.value = {}; }
+    } catch (err: any) {
+      forgePromos.value = {};
+      const details = err?.response?.data?.details || err?.message || '';
+      serverInstallInfo.error = t('download.install_failed');
+      serverInstallInfo.errorDetails = `获取 Forge Promos 失败: ${details}`;
+    }
   }
 
   function handleMcVersionChange() {
@@ -179,7 +190,12 @@ export function useDownload() {
         loaderVersions.value = res.data;
         sortLoaderVersions(selectedLoader.value);
       }
-    } catch { loaderVersions.value = []; }
+    } catch (err: any) {
+      loaderVersions.value = [];
+      const details = err?.response?.data?.details || err?.message || '';
+      serverInstallInfo.error = t('download.install_failed');
+      serverInstallInfo.errorDetails = `获取 ${selectedLoader.value} 版本列表失败: ${details}`;
+    }
     finally { loadingLoaderVersions.value = false; }
   }
 
@@ -215,9 +231,10 @@ export function useDownload() {
         autoInstall: autoInstall.value
       }).then(res => {
         if (res.data?.installPath) installPath.value = res.data.installPath;
-      }).catch(() => {
+      }).catch((err: any) => {
         serverInstallInfo.status = 'error';
         serverInstallInfo.error = t('download.install_failed');
+        serverInstallInfo.errorDetails = err?.response?.data?.details || err?.message || '';
         serverInstallProgress.status = 'exception';
       });
     });
@@ -259,6 +276,7 @@ export function useDownload() {
       serverInstallProgress.status = 'exception';
       serverInstallInfo.status = 'error';
       serverInstallInfo.error = data.error || t('download.install_error');
+      serverInstallInfo.errorDetails = data.details || '';
       installing.value = false;
       socket?.disconnect();
     });
@@ -268,6 +286,7 @@ export function useDownload() {
         serverInstallProgress.status = 'exception';
         serverInstallInfo.status = 'error';
         serverInstallInfo.error = t('download.install_error');
+        serverInstallInfo.errorDetails = 'WebSocket 连接断开，安装过程可能中断';
         installing.value = false;
       }
     });
@@ -288,6 +307,7 @@ export function useDownload() {
     serverInstallProgress.status = 'normal';
     serverInstallInfo.status = 'idle';
     serverInstallInfo.error = '';
+    serverInstallInfo.errorDetails = '';
     socket?.disconnect();
     socket = null;
   }

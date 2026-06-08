@@ -165,3 +165,60 @@ export const logger: Logger = {
   warn: (msg, meta) => log("warn", msg, meta),
   error: (msg, meta) => log("error", msg, meta),
 };
+
+// 导出日志相关路径和工具函数
+export function getLogFilePath(): string {
+  updateLogFilePath();
+  return logFilePath;
+}
+
+export function getLogsDir(): string {
+  return logsDir;
+}
+
+export async function getLogFileContent(lines?: number): Promise<string> {
+  updateLogFilePath();
+  // 先刷新缓冲区
+  if (logBuffer.length > 0) {
+    await flushBuffer();
+  }
+  
+  try {
+    if (!fs.existsSync(logFilePath)) {
+      return '';
+    }
+    const content = await fs.promises.readFile(logFilePath, 'utf-8');
+    if (lines && lines > 0) {
+      const allLines = content.split('\n');
+      return allLines.slice(-lines).join('\n');
+    }
+    return content;
+  } catch (err) {
+    return '';
+  }
+}
+
+export async function listLogFiles(): Promise<{ name: string; size: number; date: string }[]> {
+  try {
+    if (!fs.existsSync(logsDir)) {
+      return [];
+    }
+    const files = await fs.promises.readdir(logsDir);
+    const result: { name: string; size: number; date: string }[] = [];
+    for (const file of files) {
+      if (file.endsWith('.log')) {
+        const filePath = path.join(logsDir, file);
+        const stats = await fs.promises.stat(filePath);
+        result.push({
+          name: file,
+          size: stats.size,
+          date: stats.mtime.toISOString()
+        });
+      }
+    }
+    result.sort((a, b) => b.date.localeCompare(a.date));
+    return result;
+  } catch {
+    return [];
+  }
+}

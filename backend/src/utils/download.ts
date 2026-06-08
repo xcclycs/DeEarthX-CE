@@ -1,6 +1,6 @@
 import pMap from "p-map";
 import pRetry from "p-retry";
-import got from "got";
+import got, { Got, Options } from "got";
 import fs from "node:fs";
 import fse from "fs-extra";
 import crypto from "node:crypto";
@@ -19,15 +19,110 @@ export interface MirrorUrls {
 const hashCache = new Map<string, { hash: string; mtime: number; size: number }>();
 const HASH_CACHE_MAX_SIZE = 500;
 
+// 镜像源状态追踪
+interface MirrorStatus {
+  failed: boolean;
+  failCount: number;
+  lastFailTime: number;
+  cooldownUntil: number;
+}
+
+const mirrorStatusMap = new Map<string, MirrorStatus>();
+const MIRROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 分钟冷却
+const MIRROR_MAX_FAIL_COUNT = 3; // 失败 3 次后禁用
+
+// DNS 缓存
+const dnsCache = new Map<string, string>();
+const DNS_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+
+function getMirrorStatusKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.hostname;
+  } catch {
+    return url;
+  }
+}
+
+function isMirrorDown(url: string): boolean {
+  const key = getMirrorStatusKey(url);
+  const status = mirrorStatusMap.get(key);
+  if (!status) return false;
+  if (!status.failed) return false;
+  if (Date.now() < status.cooldownUntil) return true;
+  // 冷却期已过，重置状态尝试重新连接
+  mirrorStatusMap.delete(key);
+  return false;
+}
+
+function recordMirrorFailure(url: string): void {
+  const key = getMirrorStatusKey(url);
+  const status = mirrorStatusMap.get(key) || { failed: false, failCount: 0, lastFailTime: 0, cooldownUntil: 0 };
+  status.failCount++;
+  status.lastFailTime = Date.now();
+  if (status.failCount >= MIRROR_MAX_FAIL_COUNT) {
+    status.failed = true;
+    status.cooldownUntil = Date.now() + MIRROR_COOLDOWN_MS;
+    logger.warn(`镜像源 ${key} 已连续失败 ${status.failCount} 次，进入 ${MIRROR_COOLDOWN_MS / 1000} 秒冷却期`);
+  }
+  mirrorStatusMap.set(key, status);
+}
+
+function recordMirrorSuccess(url: string): void {
+  const key = getMirrorStatusKey(url);
+  mirrorStatusMap.delete(key);
+}
+
+// 获取原始 URL（去掉镜像源前缀）
+function getOriginalUrl(mirrorUrl: string): string {
+  if (mirrorUrl.includes('mod.mcimirror.top')) {
+    return mirrorUrl
+      .replace('https://mod.mcimirror.top/modrinth', 'https://api.modrinth.com')
+      .replace('https://mod.mcimirror.top/curseforge', 'https://api.curseforge.com')
+      .replace('https://mod.mcimirror.top', 'https://cdn.modrinth.com');
+  }
+  return mirrorUrl;
+}
+
+function isMCIMirrorUrl(url: string): boolean {
+  return url.includes('mod.mcimirror.top');
+}
+
+// 检查 URL 是否可达（快速 HEAD 请求）
+async function checkUrlReachable(url: string, timeout = 5000): Promise<boolean> {
+  try {
+    await got.head(url, {
+      headers: { "user-agent": "DeEarthX" },
+      timeout: { request: timeout },
+      followRedirect: true,
+      retry: { limit: 0 },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getMirrorUrls(): MirrorUrls {
   const config = Config.getConfig();
   if (config.mirror?.mcimirror) {
-    return {
+    const urls = {
       modrinth_url: "https://mod.mcimirror.top/modrinth",
       curseforge_url: "https://mod.mcimirror.top/curseforge",
       modrinth_Durl: "https://mod.mcimirror.top",
       curseforge_Durl: "https://mod.mcimirror.top",
     };
+    // 检查镜像源是否在冷却期
+    if (isMirrorDown(urls.modrinth_Durl)) {
+      logger.warn("MCI 镜像源处于冷却期，自动回退到原始源");
+      return {
+        modrinth_url: "https://api.modrinth.com",
+        curseforge_url: "https://api.curseforge.com",
+        modrinth_Durl: "https://cdn.modrinth.com",
+        curseforge_Durl: "https://edge.forgecdn.net",
+      };
+    }
+    return urls;
   }
   return {
     modrinth_url: "https://api.modrinth.com",
@@ -35,10 +130,6 @@ export function getMirrorUrls(): MirrorUrls {
     modrinth_Durl: "https://cdn.modrinth.com",
     curseforge_Durl: "https://edge.forgecdn.net",
   };
-}
-
-function isMCIMirrorUrl(url: string): boolean {
-  return url.includes('mod.mcimirror.top');
 }
 
 function getCacheKey(filePath: string): string {
@@ -118,12 +209,32 @@ export function verifySHA1(filePath: string, expectedHash: string): boolean {
 }
 
 async function simpleDownload(url: string, filePath: string): Promise<void> {
-  const res = await got.get(url, {
-    responseType: "buffer",
-    headers: { "user-agent": "DeEarthX" },
-    followRedirect: true,
-  });
-  fse.outputFileSync(filePath, res.rawBody);
+  try {
+    const res = await got.get(url, {
+      responseType: "buffer",
+      headers: { "user-agent": "DeEarthX" },
+      followRedirect: true,
+      dnsCache: true,
+    });
+    fse.outputFileSync(filePath, res.rawBody);
+    recordMirrorSuccess(url);
+  } catch (err: any) {
+    // 如果是镜像源且连接失败，尝试回退到原始源
+    if (isMCIMirrorUrl(url)) {
+      const originalUrl = getOriginalUrl(url);
+      logger.warn(`镜像源 ${url} 下载失败，回退到原始源: ${originalUrl}`);
+      recordMirrorFailure(url);
+      const res = await got.get(originalUrl, {
+        responseType: "buffer",
+        headers: { "user-agent": "DeEarthX" },
+        followRedirect: true,
+        dnsCache: true,
+      });
+      fse.outputFileSync(filePath, res.rawBody);
+      return;
+    }
+    throw err;
+  }
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -148,6 +259,31 @@ async function chunkedDownload(
     concurrency = 16;
   }
 
+  try {
+    await doChunkedDownload(url, filePath, chunkSize, concurrency, useMCIMirror);
+    recordMirrorSuccess(url);
+  } catch (err: any) {
+    // 如果是镜像源且连接失败，尝试回退到原始源
+    if (isMCIMirrorUrl(url)) {
+      const originalUrl = getOriginalUrl(url);
+      logger.warn(`镜像源分块下载失败，回退到原始源: ${originalUrl}`, err);
+      recordMirrorFailure(url);
+      // 清理失败的文件
+      try { await fs.promises.unlink(filePath); } catch {}
+      await doChunkedDownload(originalUrl, filePath, chunkSize, concurrency, false);
+      return;
+    }
+    throw err;
+  }
+}
+
+async function doChunkedDownload(
+  url: string,
+  filePath: string,
+  chunkSize: number,
+  concurrency: number,
+  useMCIMirror: boolean,
+): Promise<void> {
   const chunkLabel = chunkSize >= 1024 * 1024
     ? `${chunkSize / 1024 / 1024}MB`
     : `${chunkSize / 1024}KB`;
@@ -161,6 +297,7 @@ async function chunkedDownload(
       headers: { "user-agent": "DeEarthX" },
       followRedirect: true,
       timeout: { request: 30000 },
+      dnsCache: true,
     });
     fileSize = parseInt(head.headers['content-length'] || '0', 10);
     if (useMCIMirror) {
@@ -203,6 +340,7 @@ async function chunkedDownload(
           },
           followRedirect: true,
           timeout: { request: 60000 },
+          dnsCache: true,
         });
 
         if (res.statusCode === 206) {
@@ -296,7 +434,7 @@ async function downloadFile(
         }
       } catch (error) {
         if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
+          try { fs.unlinkSync(filePath); } catch {}
         }
         throw error;
       }
@@ -304,7 +442,7 @@ async function downloadFile(
     {
       retries: 3,
       onFailedAttempt: (error) => {
-        logger.warn(`${url} 下载失败，正在重试 (${error.attemptNumber}/3)`);
+        logger.warn(`${url} 下载失败，正在重试 (${error.attemptNumber}/3): ${error.message}`);
       },
     },
   );
