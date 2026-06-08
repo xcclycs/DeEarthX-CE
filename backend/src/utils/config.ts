@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: IConfig = {
     dexpub: true,
     mixins: true,
     modrinth: false,
-    mcmodFilter: false,
+    mcmodFilter: true,
     aiFilter: false,
   },
   oaf: true,

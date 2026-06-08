@@ -16,7 +16,7 @@ const DEFAULT_CONFIG: IModCheckConfig = {
   enableModrinth: true,
   enableMixin: true,
   enableHash: true,
-  enableMcmod: false,
+  enableMcmod: true,
   timeout: 30000,
 };
 
