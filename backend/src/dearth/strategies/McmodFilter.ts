@@ -11,9 +11,8 @@ export class McmodFilter implements IFilterStrategy {
   private slugToId: Map<string, number> | null = null;
 
   constructor() {
-    // 尝试定位 moddata.txt（相对于项目根目录或可执行文件目录）
     const dirname = typeof __dirname !== "undefined" ? __dirname : path.dirname(fileURLToPath(import.meta.url));
-    this.MODDATA_PATH = path.resolve(dirname, "../../../moddata.txt");
+    this.MODDATA_PATH = path.resolve(dirname, "moddata.txt");
   }
 
   async filter(files: IFileInfo[]): Promise<string[]> {
