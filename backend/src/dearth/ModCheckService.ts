@@ -3,6 +3,7 @@ import { HashFilter } from "./strategies/HashFilter.js";
 import { MixinFilter } from "./strategies/MixinFilter.js";
 import { DexpubFilter } from "./strategies/DexpubFilter.js";
 import { ModrinthFilter } from "./strategies/ModrinthFilter.js";
+import { McmodFilter } from "./strategies/McmodFilter.js";
 import { IModCheckResult, IModCheckConfig, IFileInfo, ModSide } from "./types.js";
 import { JarParser } from "../utils/jar-parser.js";
 import { logger } from "../utils/logger.js";
@@ -15,6 +16,7 @@ const DEFAULT_CONFIG: IModCheckConfig = {
   enableModrinth: true,
   enableMixin: true,
   enableHash: true,
+  enableMcmod: false,
   timeout: 30000,
 };
 
@@ -80,6 +82,15 @@ export class ModCheckService {
   private async identifyClientSideMods(files: IFileInfo[]): Promise<string[]> {
     const clientMods: string[] = [];
     const processedFiles = new Set<string>();
+
+    if (this.config.enableMcmod) {
+      logger.info("开始 Mcmod 检查客户端模组");
+      const mcmodStrategy = new McmodFilter();
+      const mcmodMods = await mcmodStrategy.filter(files);
+
+      mcmodMods.forEach(mod => processedFiles.add(mod));
+      clientMods.push(...mcmodMods);
+    }
 
     if (this.config.enableDexpub) {
       logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
@@ -272,6 +283,10 @@ export class ModCheckService {
       checkPromises.push(this.runCheckWithTimeout(this.checkDexpub, file, "Dexpub"));
     }
 
+    if (this.config.enableMcmod) {
+      checkPromises.push(this.runCheckWithTimeout(this.checkMcmod, file, "Mcmod"));
+    }
+
     if (this.config.enableModrinth) {
       checkPromises.push(this.runCheckWithTimeout(this.checkModrinth, file, "Modrinth"));
     }
@@ -361,6 +376,7 @@ export class ModCheckService {
     }
 
     const priority: { [key: string]: number } = {
+      "Mcmod": 0,
       "Dexpub": 1,
       "Modrinth": 2,
       "Mixin": 3,
@@ -391,6 +407,19 @@ export class ModCheckService {
       return { clientSide: "required", serverSide: "unsupported" };
     } else if (serverMods.some(f => path.basename(f) === filename)) {
       return { clientSide: "unsupported", serverSide: "required" };
+    }
+
+    return null;
+  }
+
+  private async checkMcmod(file: IFileInfo): Promise<{ clientSide: ModSide; serverSide: ModSide } | null> {
+    const strategy = new McmodFilter();
+    const files = [file];
+    const clientMods = await strategy.filter(files);
+    const filename = path.basename(file.filename);
+    
+    if (clientMods.some(f => path.basename(f) === filename)) {
+      return { clientSide: "required", serverSide: "unsupported" };
     }
 
     return null;
