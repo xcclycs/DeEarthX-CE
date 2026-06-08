@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { inject, ref, onMounted, computed, onUnmounted } from 'vue';
 import { InboxOutlined } from '@ant-design/icons-vue';
+import { useRouter } from 'vue-router';
 import { message, notification, StepsProps } from 'ant-design-vue';
 import type { UploadFile, UploadChangeParam } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
@@ -8,6 +9,7 @@ import { SelectProps } from 'ant-design-vue/es/vc-select';
 import { useI18n } from 'vue-i18n';
 import { getSocketIO, disconnectSocket } from '../utils/socket';
 
+const router = useRouter();
 const { t } = useI18n();
 
 interface Template {
@@ -84,8 +86,28 @@ function handleFileDrop(e: DragEvent) {
 }
 
 // 初始化
-onMounted(() => {
+onMounted(async () => {
     // stepItems 和 modeOptions 都是 computed，会自动初始化
+    
+    // 检查 Java 安装状态
+    try {
+        const apiHost = import.meta.env.VITE_API_HOST || 'localhost';
+        const apiPort = import.meta.env.VITE_API_PORT || '37019';
+        const response = await fetch(`http://${apiHost}:${apiPort}/java/status`);
+        const result = await response.json();
+        if (result.status === 200 && result.data) {
+            if (result.data.installing) {
+                javaInstalling.value = true;
+                javaInstallMessage.value = '正在自动安装 Java 21...';
+            } else if (result.data.installed) {
+                javaAvailable.value = true;
+            } else if (result.data.error) {
+                javaAvailable.value = false;
+            }
+        }
+    } catch (e) {
+        // 后端可能还没启动，忽略错误
+    }
 });
 
 // 重置所有状态
@@ -96,6 +118,8 @@ function resetState() {
     selectedFileName.value = '';
     showSteps.value = false;
     currentStep.value = 0;
+    showGuardianLaunch.value = false;
+    serverInstallPath.value = '';
     unzipProgress.value = { status: 'active', percent: 0, display: true };
     downloadProgress.value = { status: 'active', percent: 0, display: true };
     downloadCompleted.value = 0;
@@ -111,6 +135,9 @@ function resetState() {
 
 // 模式选择相关
 const javaAvailable = ref(true);
+const javaInstalling = ref(false);
+const javaInstallProgress = ref(0);
+const javaInstallMessage = ref('');
 const selectedMode = ref(javaAvailable.value ? 'server' : 'upload');
 
 // 模式选项（使用computed自动响应语言变化）
@@ -330,12 +357,8 @@ async function runDeEarthX(file: File) {
 // 处理错误消息
 function handleError(result: any) {
     if (result === 'jini') {
-        javaAvailable.value = false;
-        notification.error({
-            message: t('home.java_error_title'),
-            description: t('home.java_error_desc'),
-            duration: 0
-        });
+        // Java 错误现在由自动安装处理，不再立即禁用
+        return;
     } else if (typeof result === 'string') {
         // 根据错误类型提供不同的解决方案
         let errorTitle = t('home.backend_error');
@@ -505,12 +528,19 @@ function handleServerInstallProgress(result: any) {
 }
 
 // 处理服务端安装完成
+const serverInstallPath = ref('');
+const showGuardianLaunch = ref(false);
+
 function handleServerInstallComplete(result: any) {
     serverInstallInfo.value.status = 'completed';
     serverInstallInfo.value.installPath = result.installPath;
     serverInstallInfo.value.duration = result.duration;
     serverInstallInfo.value.message = t('home.server_install_completed');
     serverInstallProgress.value = { status: 'success', percent: 100, display: true };
+    
+    // 存储安装路径，启用 AI 模式启动按钮
+    serverInstallPath.value = result.installPath;
+    showGuardianLaunch.value = true;
     
     // 跳转到完成步骤
     currentStep.value++;
@@ -519,12 +549,18 @@ function handleServerInstallComplete(result: any) {
     message.success(t('home.server_install_completed') + ` ${t('home.server_install_duration')}: ${timeSpent}s`);
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
     
-    // 8秒后隐藏进度
+    // 8秒后隐藏进度（但保留 AI 模式启动按钮）
     setTimeout(() => {
         serverInstallProgress.value.display = false;
         updateWindowProgress();
     }, 8000);
     updateWindowProgress();
+}
+
+function launchGuardianWithServer() {
+    if (serverInstallPath.value) {
+        router.push(`/guardian?workDir=${encodeURIComponent(serverInstallPath.value)}`);
+    }
 }
 
 // 处理服务端安装错误
@@ -647,6 +683,35 @@ function handleStartProcess() {
         }
     });
 
+    socket.on('java_install', (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            if (parsed.stage === 'completed') {
+                javaInstalling.value = false;
+                javaAvailable.value = true;
+                javaInstallProgress.value = 100;
+                javaInstallMessage.value = parsed.message || 'Java 21 安装完成';
+                message.success(parsed.message || 'Java 21 安装完成');
+            } else if (parsed.stage === 'error') {
+                javaInstalling.value = false;
+                javaAvailable.value = false;
+                javaInstallProgress.value = 0;
+                javaInstallMessage.value = parsed.message || 'Java 21 安装失败';
+                notification.error({
+                    message: t('home.java_error_title'),
+                    description: parsed.message || t('home.java_error_desc'),
+                    duration: 0
+                });
+            } else {
+                javaInstalling.value = true;
+                javaInstallProgress.value = parsed.progress || 0;
+                javaInstallMessage.value = parsed.message || '';
+            }
+        } catch {
+            // ignore parse errors
+        }
+    });
+
     socket.on('changed', () => {
         currentStep.value++;
     });
@@ -728,7 +793,15 @@ onUnmounted(() => {
                     <h1 class="tw:text-4xl tw:text-center tw:animate-pulse">{{ t('common.app_name') }}</h1>
                     <h1 class="tw:text-sm tw:text-gray-500 tw:text-center">{{ t('home.title') }}</h1>
                 </div>
-                <a-upload-dragger :disabled="uploadDisabled" class="tw:w-full tw:max-w-md tw:h-48" name="file"
+                <div v-if="javaInstalling" class="tw:w-full tw:max-w-md tw:mb-4 tw:px-4 tw:py-3 tw:bg-blue-50 tw:border tw:border-blue-300 tw:rounded-lg">
+                    <div class="tw:flex tw:items-center tw:gap-2 tw:mb-2">
+                        <a-spin size="small" />
+                        <span class="tw:text-sm tw:text-blue-700 tw:font-medium">{{ t('home.java_installing_title') }}</span>
+                    </div>
+                    <a-progress :percent="javaInstallProgress" :status="javaInstallProgress >= 100 ? 'success' : 'active'" size="small" />
+                    <div class="tw:text-xs tw:text-blue-600 tw:mt-1">{{ javaInstallMessage }}</div>
+                </div>
+                <a-upload-dragger :disabled="uploadDisabled || javaInstalling" class="tw:w-full tw:max-w-md tw:h-48" name="file"
                     action="/" :multiple="false" :before-upload="beforeUpload" @change="handleFileChange"
                     @drop="handleFileDrop" v-model:fileList="uploadedFiles" :show-upload-list="false" accept=".zip,.mrpack">
                     <p class="ant-upload-drag-icon">
@@ -825,6 +898,23 @@ onUnmounted(() => {
                     </div>
                 </div>
             </a-card>
+        </div>
+        
+        <div v-if="showGuardianLaunch"
+            class="tw:fixed tw:bottom-24 tw:left-1/2 tw:-translate-x-1/2 tw:w-[65%] tw:flex tw:justify-center tw:items-center tw:gap-4 tw:py-3 tw:px-4 tw:bg-white tw:rounded-xl tw:shadow-lg tw:z-20">
+            <div class="tw:flex tw:items-center tw:gap-3">
+                <span class="tw:text-sm tw:text-gray-600">{{ t('home.guardian_launch_hint') }}</span>
+                <a-button type="primary" @click="launchGuardianWithServer" :disabled="!javaAvailable">
+                    {{ t('home.guardian_launch_button') }}
+                </a-button>
+                <a-button v-if="javaInstalling" disabled size="small">
+                    <template #icon><span class="tw:inline-block tw:animate-spin">⟳</span></template>
+                    {{ t('home.java_installing_title') }}
+                </a-button>
+                <span v-if="!javaAvailable && !javaInstalling" class="tw:text-xs tw:text-red-500">
+                    {{ t('home.java_not_found') }}
+                </span>
+            </div>
         </div>
         
         <a-modal v-model:open="showTemplateModal" :title="t('home.template_select_title')" :footer="null" width="700px">

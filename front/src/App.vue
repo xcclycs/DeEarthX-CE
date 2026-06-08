@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { h, provide, ref, onMounted, onUnmounted, computed } from 'vue';
 import { MenuProps, message } from 'ant-design-vue';
-import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, AppstoreOutlined, CloudDownloadOutlined } from '@ant-design/icons-vue';
+import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, AppstoreOutlined, CloudDownloadOutlined, SafetyOutlined } from '@ant-design/icons-vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Command } from '@tauri-apps/plugin-shell';
 import { useI18n } from 'vue-i18n';
@@ -296,6 +296,8 @@ router.beforeEach((to, _from, next) => {
         '/galaxy': 'galaxy',
         '/deearth': 'deearth',
         '/template': 'template',
+        '/download': 'download',
+        '/guardian': 'guardian',
         '/plugins': 'plugin-manager',
         '/plugin': 'plugin-manager'
     };
@@ -308,13 +310,6 @@ router.beforeEach((to, _from, next) => {
             selectedKeys.value[0] = sidebarItem.key;
         } else {
             selectedKeys.value[0] = 'plugin-manager';
-        }
-    } else if (to.path === '/guardian') {
-        const guardianItem = pluginSidebarItems.value.find(item => item.pluginId === 'guardian');
-        if (guardianItem) {
-            selectedKeys.value[0] = guardianItem.key;
-        } else {
-            selectedKeys.value[0] = 'plugin';
         }
     } else {
         const matchedKey = routeToKey[to.path];
@@ -366,6 +361,12 @@ const menuItems = computed<MenuProps['items']>(() => {
             title: t('menu.download'),
         },
         {
+            key: 'guardian',
+            icon: h(SafetyOutlined),
+            label: t('menu.guardian'),
+            title: t('menu.guardian'),
+        },
+        {
             key: 'plugin',
             icon: h(AppstoreOutlined),
             label: t('menu.plugin'),
@@ -411,6 +412,7 @@ const handleMenuClick: MenuProps['onClick'] = (e) => {
         galaxy: '/galaxy',
         template: '/template',
         download: '/download',
+        guardian: '/guardian',
         plugin: '/plugins',
         'plugin-manager': '/plugins'
     };

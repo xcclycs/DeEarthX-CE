@@ -5,7 +5,7 @@ import { createServer, Server as HTTPServer } from "node:http";
 import { Config, IConfig } from "./utils/config.js";
 import { Dex } from "./Dex.js";
 import { logger } from "./utils/logger.js";
-import { checkJava, JavaCheckResult, detectJavaPaths, getAppDir } from "./utils/utils.js";
+import { checkJava, JavaCheckResult, detectJavaPaths, getAppDir, installJava21 } from "./utils/utils.js";
 import { Galaxy } from "./galaxy.js";
 import { GuardianController } from "./guardian/index.js";
 import type { IGuardianConfig } from "./guardian/types.js";
@@ -70,12 +70,15 @@ export class Core {
         });
     }
 
+    private javaStatus: { installed: boolean; installing: boolean; path?: string; error?: string } = { installed: false, installing: false };
+
     private async javachecker() {
         try {
             const result: JavaCheckResult = await checkJava();
             
             if (result.exists && result.version) {
                 logger.info(`检测到 Java: ${result.version.fullVersion} (${result.version.vendor})`);
+                this.javaStatus = { installed: true, installing: false };
                 
                 if (this.currentSocket) {
                     this.currentSocket.emit("info", JSON.stringify({
@@ -85,14 +88,56 @@ export class Core {
                     }));
                 }
             } else {
-                logger.error("Java 检查失败", result.error);
-                
+                logger.warn("Java 未找到，开始自动安装 Java 21...");
+                this.javaStatus = { installed: false, installing: true };
+
                 if (this.currentSocket) {
-                    this.currentSocket.emit("error", JSON.stringify({
-                        type: "error",
-                        message: result.error || "未找到 Java 或版本检查失败",
-                        data: result
+                    this.currentSocket.emit("java_install", JSON.stringify({
+                        type: "java_install",
+                        stage: "downloading",
+                        progress: 0,
+                        message: "未找到 Java，正在自动安装 Java 21..."
                     }));
+                }
+
+                const javaPath = await installJava21((progress) => {
+                    if (this.currentSocket) {
+                        this.currentSocket.emit("java_install", JSON.stringify({
+                            type: "java_install",
+                            stage: progress.stage,
+                            progress: progress.progress,
+                            message: progress.message,
+                            javaPath: progress.javaPath,
+                            error: progress.error
+                        }));
+                    }
+                });
+
+                if (javaPath) {
+                    logger.info(`Java 21 自动安装成功: ${javaPath}`);
+                    this.javaStatus = { installed: true, installing: false, path: javaPath };
+                    
+                    // 重新检查 Java 版本
+                    const recheckResult = await checkJava(javaPath);
+                    if (recheckResult.exists && recheckResult.version) {
+                        if (this.currentSocket) {
+                            this.currentSocket.emit("info", JSON.stringify({
+                                type: "info",
+                                message: `Java 21 已自动安装并可用: ${recheckResult.version.fullVersion}`,
+                                data: recheckResult.version
+                            }));
+                        }
+                    }
+                } else {
+                    logger.error("Java 21 自动安装失败");
+                    this.javaStatus = { installed: false, installing: false, error: "Java 21 自动安装失败" };
+                    if (this.currentSocket) {
+                        this.currentSocket.emit("error", JSON.stringify({
+                            type: "error",
+                            message: "Java 21 自动安装失败，请手动安装 Java 17 或更高版本",
+                            data: result
+                        }));
+                    }
                 }
             }
         } catch (error) {
@@ -277,9 +322,22 @@ export class Core {
     }
 
     private setupJavaRoutes() {
+        this.app.get('/java/status', async (req, res) => {
+            try {
+                res.json({
+                    status: 200,
+                    data: this.javaStatus
+                });
+            } catch (err) {
+                const error = err as Error;
+                logger.error("/java/status 路由错误", error);
+                res.status(500).json({ status: 500, message: "获取 Java 状态失败" });
+            }
+        });
+
         this.app.get('/java/check', async (req, res) => {
             try {
-                const javaPath = req.query.path as string;
+                const javaPath = (req.query.path as string) || this.javaStatus.path;
                 const result: JavaCheckResult = await checkJava(javaPath);
                 
                 res.json({
@@ -801,10 +859,6 @@ export class Core {
                 description: "AI 驱动的 Minecraft 服务端崩溃检测与自动修复系统。监控服务端运行状态，智能识别崩溃原因，自动执行修复操作。",
                 openSource: true,
                 sourceUrl: "https://github.com/DeEarthX-CE",
-                hasSidebar: true,
-                sidebarItems: [
-                    { key: "guardian-main", label: "AI 模式", route: "guardian-main" }
-                ],
                 defaultConfig: {
                     aiProvider: "openai",
                     aiApiKey: "",
