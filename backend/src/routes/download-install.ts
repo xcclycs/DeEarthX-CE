@@ -2,7 +2,7 @@ import fs from "node:fs";
 import fse from "fs-extra";
 import path from "node:path";
 import { Server } from "socket.io";
-import { MessageWS } from "../utils/socket.io.js";
+import { MessageWS } from "../utils/ws.js";
 import { logger } from "../utils/logger.js";
 import { getAppDir } from "../utils/utils.js";
 import { Config } from "../utils/config.js";
