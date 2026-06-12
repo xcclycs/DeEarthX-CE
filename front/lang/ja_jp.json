@@ -179,6 +179,8 @@
     "filter_mixins_desc": "Client Mixin関連ファイルをフィルタリング",
     "mirror_mcimirror_name": "MCIMミラーソース",
     "mirror_mcimirror_desc": "MCIMミラーソースを使用してダウンロードを加速",
+    "mirror_mcimirror_modrinth_only_name": "MCIM Modrinthのみ",
+    "mirror_mcimirror_modrinth_only_desc": "ModrinthのダウンロードのみMCIMミラーを使用（CurseForgeは公式ソースを使用）",
     "mirror_bmclapi_name": "BMCLAPIミラーソース",
     "mirror_bmclapi_desc": "BMCLAPIミラーソースを使用してダウンロードを加速",
     "system_oaf_name": "操作完了後にディレクトリを開く",

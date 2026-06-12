@@ -171,6 +171,8 @@
     "filter_mixins_desc": "Filtrar archivos relacionados con Client Mixins",
     "mirror_mcimirror_name": "Fuente espejo MCIM",
     "mirror_mcimirror_desc": "Usar fuente espejo MCIM para acelerar descargas",
+    "mirror_mcimirror_modrinth_only_name": "MCIM solo Modrinth",
+    "mirror_mcimirror_modrinth_only_desc": "Usar MCIM solo para descargas de Modrinth (CurseForge usa fuentes oficiales)",
     "mirror_bmclapi_name": "Fuente espejo BMCLAPI",
     "mirror_bmclapi_desc": "Usar fuente espejo BMCLAPI para acelerar descargas",
     "system_oaf_name": "Abrir directorio después de la operación",

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import fse from "fs-extra";
 import path from "node:path";
 import { Server } from "socket.io";
-import { MessageWS } from "../utils/socket.io.js";
+import { MessageIO } from "../utils/socket.io.js";
 import { logger } from "../utils/logger.js";
 import { getAppDir } from "../utils/utils.js";
 import { Config } from "../utils/config.js";
@@ -102,11 +102,11 @@ export async function performInstall(
 ): Promise<void> {
   await fse.ensureDir(installPath);
 
-  let ws: MessageWS | undefined;
+  let ws: MessageIO | undefined;
   if (socketId) {
     const socket = io.sockets.sockets.get(socketId);
     if (socket) {
-      ws = new MessageWS(socket);
+      ws = new MessageIO(socket);
     }
   }
 

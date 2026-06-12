@@ -10,6 +10,7 @@ export interface IConfig {
   mirror: {
     bmclapi: boolean;
     mcimirror: boolean;
+    mcimirrorModrinthOnly?: boolean;
   };
   filter: {
     hashes: boolean;
@@ -46,6 +47,7 @@ const DEFAULT_CONFIG: IConfig = {
   mirror: {
     bmclapi: true,
     mcimirror: true,
+    mcimirrorModrinthOnly: false,
   },
   filter: {
     hashes: true,
@@ -172,7 +174,8 @@ export class Config {
     const envConfig: IConfig = {
       mirror: {
         bmclapi: getEnv('DEEARTHX_MIRROR_BMCLAPI', config.mirror.bmclapi),
-        mcimirror: getEnv('DEEARTHX_MIRROR_MCIMIRROR', config.mirror.mcimirror)
+        mcimirror: getEnv('DEEARTHX_MIRROR_MCIMIRROR', config.mirror.mcimirror),
+        mcimirrorModrinthOnly: getEnv('DEEARTHX_MIRROR_MCIMIRROR_MODRINTH_ONLY', config.mirror.mcimirrorModrinthOnly ?? false)
       },
       filter: {
         hashes: getEnv('DEEARTHX_FILTER_HASHES', config.filter.hashes),

@@ -29,6 +29,14 @@ export function getMirrorUrls(): MirrorUrls {
       curseforge_Durl: "https://mod.mcimirror.top",
     };
   }
+  if (config.mirror?.mcimirrorModrinthOnly) {
+    return {
+      modrinth_url: "https://mod.mcimirror.top/modrinth",
+      curseforge_url: "https://api.curseforge.com",
+      modrinth_Durl: "https://mod.mcimirror.top",
+      curseforge_Durl: "https://edge.forgecdn.net",
+    };
+  }
   return {
     modrinth_url: "https://api.modrinth.com",
     curseforge_url: "https://api.curseforge.com",

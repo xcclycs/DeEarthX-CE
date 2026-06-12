@@ -171,6 +171,8 @@
     "filter_mixins_desc": "過濾 Client Mixin 相關檔案",
     "mirror_mcimirror_name": "MCIM 鏡像來源",
     "mirror_mcimirror_desc": "使用 MCIM 鏡像來源加速下載",
+    "mirror_mcimirror_modrinth_only_name": "MCIM 僅加速 Modrinth",
+    "mirror_mcimirror_modrinth_only_desc": "僅使用 MCIM 鏡像來源加速 Modrinth 平台下載（不加速 CurseForge）",
     "mirror_bmclapi_name": "BMCLAPI 鏡像來源",
     "mirror_bmclapi_desc": "使用 BMCLAPI 鏡像來源加速下載",
     "system_oaf_name": "操作完成後開啟目錄",

@@ -171,6 +171,8 @@
     "filter_mixins_desc": "Filtrer les fichiers liés aux Client Mixins",
     "mirror_mcimirror_name": "Source miroir MCIM",
     "mirror_mcimirror_desc": "Utiliser la source miroir MCIM pour accélérer le téléchargement",
+    "mirror_mcimirror_modrinth_only_name": "MCIM Modrinth uniquement",
+    "mirror_mcimirror_modrinth_only_desc": "Utiliser MCIM uniquement pour les téléchargements Modrinth (CurseForge utilise les sources officielles)",
     "mirror_bmclapi_name": "Source miroir BMCLAPI",
     "mirror_bmclapi_desc": "Utiliser la source miroir BMCLAPI pour accélérer le téléchargement",
     "system_oaf_name": "Ouvrir le dossier après l'opération",

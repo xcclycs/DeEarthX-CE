@@ -9,6 +9,7 @@ interface AppConfig {
   mirror: {
     bmclapi: boolean;
     mcimirror: boolean;
+    mcimirrorModrinthOnly?: boolean;
   };
   filter: {
     hashes: boolean;
@@ -99,6 +100,13 @@ const settings = computed<SettingCategory[]>(() => {
           name: t('setting.mirror_mcimirror_name'),
           description: t('setting.mirror_mcimirror_desc'),
           path: 'mirror.mcimirror',
+          defaultValue: false
+        },
+        {
+          key: 'mcimirrorModrinthOnly',
+          name: t('setting.mirror_mcimirror_modrinth_only_name'),
+          description: t('setting.mirror_mcimirror_modrinth_only_desc'),
+          path: 'mirror.mcimirrorModrinthOnly',
           defaultValue: false
         },
         {
@@ -203,7 +211,6 @@ async function saveConfig(newConfig: AppConfig) {
     await axios.post('/config/post', newConfig, {
       headers: { 'Content-Type': 'application/json' }
     });
-    message.success(t('setting.config_saved'));
   } catch (error) {
     console.error('保存配置失败:', error);
     message.error(t('setting.config_save_failed'));
@@ -227,14 +234,17 @@ watch(config, (newValue) => {
 <template>
   <div class="tw:h-full tw:w-full tw:p-8 tw:overflow-auto tw:bg-gradient-to-br tw:from-slate-50 tw:via-blue-50 tw:to-indigo-50">
     <div class="tw:max-w-3xl tw:mx-auto">
-      <div class="tw:text-center tw:mb-10 tw:animate-fade-in">
-        <h1 class="tw:text-4xl tw:font-bold tw:tracking-tight tw:mb-3">
-          <span class="tw:bg-gradient-to-r tw:from-emerald-500 tw:to-cyan-500 tw:bg-clip-text tw:text-transparent">
+      <div class="tw:mb-10 tw:animate-fade-in">
+        <div class="tw:flex tw:items-center tw:gap-2 tw:mb-2">
+          <span class="tw:text-xs tw:font-semibold tw:tracking-widest tw:uppercase tw:bg-gradient-to-r tw:from-emerald-500 tw:to-cyan-500 tw:bg-clip-text tw:text-transparent">
             {{ t('common.app_name') }}
           </span>
-          <span class="tw:text-gray-800">{{ t('menu.setting') }}</span>
+          <span class="tw:text-gray-300">/</span>
+        </div>
+        <h1 class="tw:text-3xl tw:font-bold tw:tracking-tight tw:text-gray-800">
+          {{ t('menu.setting') }}
         </h1>
-        <p class="tw:text-gray-500 tw:text-lg">{{ t('setting.subtitle') }}</p>
+        <p class="tw:text-gray-500 tw:text-base tw:mt-2">{{ t('setting.subtitle') }}</p>
       </div>
 
       <div

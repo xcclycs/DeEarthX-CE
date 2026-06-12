@@ -189,6 +189,8 @@
     "filter_mixins_desc": "过滤 Client Mixin 相关文件",
     "mirror_mcimirror_name": "MCIM 镜像源",
     "mirror_mcimirror_desc": "使用 MCIM 镜像源加速下载",
+    "mirror_mcimirror_modrinth_only_name": "MCIM 仅加速 Modrinth",
+    "mirror_mcimirror_modrinth_only_desc": "仅使用 MCIM 镜像源加速 Modrinth 平台下载（不加速 CurseForge）",
     "mirror_bmclapi_name": "BMCLAPI 镜像源",
     "mirror_bmclapi_desc": "使用 BMCLAPI 镜像源加速下载",
     "system_oaf_name": "操作完成后打开目录",
