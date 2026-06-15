@@ -7,14 +7,6 @@ import { execPromise, version_compare, fastdownload } from "../utils/utils.js";
 import { yauzl_promise } from "../utils/ziplib.js";
 import { logger } from "../utils/logger.js";
 
-interface IVersion {
-  downloads: {
-    server_mappings: {
-      url: string;
-    };
-  };
-}
-
 export class NeoForge extends Forge {
   got: Got;
 
@@ -40,7 +32,8 @@ export class NeoForge extends Forge {
   async setup() {
     await this.installer();
     const config = Config.getConfig();
-    if (config.mirror.bmclapi) {
+    // NeoForge 1.21+ 不再需要预下载 library（mappings 已内置在 installer 中）
+    if (config.mirror.bmclapi && version_compare(this.minecraft, "1.21") === -1) {
       await this.library();
     }
     await this.install();

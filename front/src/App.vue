@@ -1,11 +1,14 @@
 <script lang="ts" setup>
-import { h, provide, ref, onMounted, onUnmounted, computed } from 'vue';
+import { h, provide, ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { MenuProps, message } from 'ant-design-vue';
-import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, FileSearchOutlined, FolderOutlined, AppstoreOutlined, CloudDownloadOutlined } from '@ant-design/icons-vue';
+import { SettingOutlined, UploadOutlined, UserOutlined, WindowsOutlined, LoadingOutlined, FileSearchOutlined, FolderOutlined, AppstoreOutlined, CloudDownloadOutlined } from '@ant-design/icons-vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Command } from '@tauri-apps/plugin-shell';
 import { useI18n } from 'vue-i18n';
 import { ErrorCode, createErrorInfo } from './utils/errorCodes';
+import { getProgressState } from './stores/progressStore';
+import { showAds } from './stores/settingsStore';
+import TitleBar from './components/TitleBar.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -197,6 +200,96 @@ onMounted(async () => {
         fetchPluginSidebarItems();
         loadPluginInjections();
     }, 5000);
+    fetchAds();
+    startAdRotation();
+});
+
+// 广告/赞助商相关
+interface Sponsor {
+    id: string;
+    name: string;
+    imageUrl: string;
+    type: string;
+    url: string;
+}
+
+const sponsors = ref<Sponsor[]>([]);
+const currentAdIndex = ref(0);
+let adRotationTimer: ReturnType<typeof setInterval> | null = null;
+const SPONSORS_JSON_URL = "https://bk.xcclyc.cn/upzzs.json";
+
+async function fetchAds() {
+    try {
+        const response = await fetch(SPONSORS_JSON_URL);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        sponsors.value = data;
+    } catch (error) {
+        console.error("Failed to fetch sponsors:", error);
+        sponsors.value = [
+            {
+                id: "elfidc",
+                name: "亿讯云",
+                imageUrl: "./elfidc.svg",
+                type: t('about.sponsor_type_gold'),
+                url: "https://www.elfidc.com"
+            }
+        ];
+    }
+}
+
+function startAdRotation() {
+    stopAdRotation();
+    if (sponsors.value.length > 1) {
+        adRotationTimer = setInterval(() => {
+            currentAdIndex.value = (currentAdIndex.value + 1) % sponsors.value.length;
+        }, 5000);
+    }
+}
+
+function openSponsorUrl(url: string) {
+    window.open(url, '_blank');
+}
+
+function stopAdRotation() {
+    if (adRotationTimer !== null) {
+        clearInterval(adRotationTimer);
+        adRotationTimer = null;
+    }
+}
+
+// 监听赞助商列表变化，重新启动轮播
+watch(sponsors, () => {
+    currentAdIndex.value = 0;
+    startAdRotation();
+});
+
+// 正在制作的状态指示器（非主页时显示）
+const isMakingIndicator = computed(() => {
+    const state = getProgressState();
+    if (!state.isMaking) return null;
+    const stepItems = [
+        t('home.step1_title'),
+        t('home.step2_title'),
+        t('home.step3_title'),
+        t('home.step4_title')
+    ];
+    const step = stepItems[state.currentStep] || t('home.unknown_step');
+    let progressText = '';
+    if (state.uploadProgress.display && state.uploadProgress.percent < 100) {
+        progressText = `${state.uploadProgress.percent}%`;
+    } else if (state.unzipProgress.display && state.unzipProgress.percent < 100) {
+        progressText = `${t('home.unzip_progress')}: ${state.unzipProgress.percent}%`;
+    } else if (state.downloadProgress.display && state.downloadProgress.percent < 100) {
+        progressText = `${t('home.download_progress')}: ${state.downloadProgress.percent}%`;
+    } else if (state.serverInstallProgress.display && state.serverInstallProgress.percent < 100) {
+        progressText = `${t('home.server_install_progress')}: ${state.serverInstallProgress.percent}%`;
+    } else if (state.filterModsProgress.display && state.filterModsProgress.percent < 100) {
+        progressText = `${t('home.filter_mods_progress')}: ${state.filterModsProgress.percent}%`;
+    }
+    return { step, progressText, isMaking: true };
 });
 
 provide("killCoreProcess", () => {
@@ -210,6 +303,7 @@ provide("killCoreProcess", () => {
 
 onUnmounted(() => {
     stopHealthCheck();
+    stopAdRotation();
 });
 
 // 导航菜单配置
@@ -443,41 +537,49 @@ const theme = ref({
 <template>
     <a-config-provider :theme="theme">
         <div class="tw:h-screen tw:w-screen tw:flex tw:flex-col tw:overflow-hidden">
-            <!-- 顶部导航栏 -->
-            <a-page-header
-                class="tw:h-14 tw:px-6 tw:flex tw:items-center tw:bg-white tw:shadow-sm tw:z-10 tw:transition-all tw:duration-300"
-                style="border: none;"
-
+            <!-- 自定义标题栏 -->
+            <TitleBar
+                :version="version"
+                :backendStatus="backendStatus"
+                :backendErrorInfo="backendErrorInfo"
+                :showAds="showAds"
             >
-                <!-- <template #extra>
-                    <a-button @click="openAuthorBilibili">作者B站</a-button>
-                </template> -->
-                <!-- 后端状态图标 -->
-                <template #title>
-                    <div class="tw:flex tw:items-center tw:gap-3">
-                        <span>
-                            <span style="color: #000000; font-weight: 500;">{{ t('common.app_name') }}</span>
-                            <span style="color: #888888; font-size: 12px; margin-left: 5px;">{{ version }}</span>
+                <template #extra>
+                    <!-- 制作进度指示器 -->
+                    <div
+                        v-if="isMakingIndicator && route.path !== '/'"
+                        class="tw:flex tw:items-center tw:gap-2 tw:px-3 tw:py-1 tw:bg-emerald-50 tw:border tw:border-emerald-200 tw:rounded-full tw:text-xs tw:text-emerald-700 tw:animate-pulse"
+                    >
+                        <LoadingOutlined style="color: #10b981; font-size: 14px;" />
+                        <span class="tw:font-medium">{{ t('home.making_indicator') }}</span>
+                        <span class="tw:text-gray-400">|</span>
+                        <span>{{ t('home.making_step') }}: {{ isMakingIndicator.step }}</span>
+                        <span v-if="isMakingIndicator.progressText" class="tw:text-gray-400">|</span>
+                        <span v-if="isMakingIndicator.progressText">{{ t('home.making_progress') }}: {{ isMakingIndicator.progressText }}</span>
+                    </div>
+                    <!-- 广告位 -->
+                    <div
+                        v-if="showAds && sponsors.length > 0"
+                        class="tw:flex tw:items-center tw:gap-2 tw:px-3 tw:py-1 tw:bg-amber-50 tw:border tw:border-amber-200 tw:rounded-full tw:cursor-pointer tw:hover:bg-amber-100 tw:transition-colors"
+                        @mousedown.stop
+                        @click="openSponsorUrl(sponsors[currentAdIndex]?.url || '')"
+                        :title="sponsors[currentAdIndex]?.name"
+                    >
+                        <img
+                            v-if="sponsors[currentAdIndex]?.imageUrl"
+                            :src="sponsors[currentAdIndex].imageUrl"
+                            :alt="sponsors[currentAdIndex].name"
+                            class="tw:h-5 tw:max-w-[60px] tw:object-contain"
+                        />
+                        <span class="tw:text-xs tw:text-amber-700 tw:font-medium tw:whitespace-nowrap">
+                            {{ sponsors[currentAdIndex]?.name }}
                         </span>
-                        <span
-                            class="tw:flex tw:items-center tw:gap-2"
-                            :title="backendErrorInfo || t('message.backend_running')"
-                        >
-                            <LoadingOutlined v-if="backendStatus === 'loading'" style="color: #1890ff; font-size: 18px;" />
-                            <CheckCircleOutlined v-else-if="backendStatus === 'success'" style="color: #52c41a; font-size: 18px;" />
-                            <CloseCircleOutlined v-else style="color: #ff4d4f; font-size: 18px;" />
-                            <span class="tw:text-xs tw:ml-1"
-                                  :style="{
-                                      color: backendStatus === 'loading' ? '#1890ff' :
-                                             backendStatus === 'success' ? '#52c41a' : '#ff4d4f'
-                                  }">
-                                {{ backendStatus === 'loading' ? t('common.status_loading') :
-                                   backendStatus === 'success' ? t('common.status_success') : t('common.status_error') }}
-                            </span>
+                        <span v-if="sponsors.length > 1" class="tw:text-xs tw:text-amber-400">
+                            ({{ currentAdIndex + 1 }}/{{ sponsors.length }})
                         </span>
                     </div>
                 </template>
-            </a-page-header>
+            </TitleBar>
 
             <!-- 主体内容区域 -->
             <div class="tw:flex tw:flex-1 tw:overflow-hidden">

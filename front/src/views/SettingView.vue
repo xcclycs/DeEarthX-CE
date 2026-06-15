@@ -4,6 +4,7 @@ import { message } from 'ant-design-vue';
 import { useI18n } from 'vue-i18n';
 import { setLanguage, type Language } from '../utils/i18n';
 import axios from '../utils/axios';
+import { showAds, setShowAds } from '../stores/settingsStore';
 
 interface AppConfig {
   mirror: {
@@ -139,6 +140,13 @@ const settings = computed<SettingCategory[]>(() => {
           description: t('setting.system_autozip_desc'),
           path: 'autoZip',
           defaultValue: false
+        },
+        {
+          key: 'showAds',
+          name: t('setting.system_show_ads_name'),
+          description: t('setting.system_show_ads_desc'),
+          path: 'showAds',
+          defaultValue: true
         }
       ]
     }
@@ -160,6 +168,10 @@ const languageOptions = computed(() => {
 
 function handleLanguageChange(value: Language) {
   setLanguage(value);
+}
+
+function handleShowAdsChange(value: boolean) {
+  setShowAds(value);
 }
 
 const { t, locale } = useI18n();
@@ -290,8 +302,16 @@ watch(config, (newValue) => {
               <p class="tw:text-xs tw:text-gray-500 tw:mt-1">{{ item.description }}</p>
             </div>
             <a-switch
+              v-if="item.key !== 'showAds'"
               :checked="getConfigValue(item.path)"
               @change="setConfigValue(item.path, $event)"
+              :checked-children="t('setting.switch_on')"
+              :un-checked-children="t('setting.switch_off')"
+            />
+            <a-switch
+              v-if="item.key === 'showAds'"
+              :checked="showAds"
+              @change="handleShowAdsChange"
               :checked-children="t('setting.switch_on')"
               :un-checked-children="t('setting.switch_off')"
             />

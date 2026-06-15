@@ -5,21 +5,12 @@ import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 
-interface Sponsor {
-    id: string;
-    name: string;
-    imageUrl: string;
-    type: string;
-    url: string;
-}
-
 interface VersionInfo {
     version: string;
     buildTime: string;
     author: string;
 }
 
-const sponsors = ref<Sponsor[]>([]);
 const currentVersion = ref<string>(t('common.loading'));
 const buildTime = ref<string>('');
 const author = ref<string>('');
@@ -46,30 +37,6 @@ async function getCurrentVersion() {
     currentVersion.value = versionInfo.version;
     buildTime.value = versionInfo.buildTime;
     author.value = versionInfo.author;
-}
-
-const SPONSORS_JSON_URL = "https://bk.xcclyc.cn/upzzs.json";
-
-async function fetchSponsors() {
-    try {
-        const response = await fetch(SPONSORS_JSON_URL);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        sponsors.value = data;
-    } catch (error) {
-        console.error("Failed to fetch sponsors:", error);
-        sponsors.value = [
-            {
-                id: "elfidc",
-                name: "亿讯云",
-                imageUrl: "./elfidc.svg",
-                type: t('about.sponsor_type_gold'),
-                url: "https://www.elfidc.com"
-            }
-        ];
-    }
 }
 
 const thanksList = computed(() => {
@@ -102,15 +69,6 @@ const thanksList = computed(() => {
   ];
 });
 
-async function contant(sponsor: Sponsor){
-    try {
-        await open(sponsor.url)
-    } catch (error) {
-        console.error("Failed to open sponsor URL:", error)
-        window.open(sponsor.url, '_blank')
-    }
-}
-
 async function openBilibili(url: string) {
     try {
         await open(url);
@@ -121,7 +79,6 @@ async function openBilibili(url: string) {
 }
 
 onMounted(() => {
-    fetchSponsors();
     getCurrentVersion();
 });
 </script>
@@ -189,33 +146,6 @@ onMounted(() => {
                         >
                             B站
                         </a-button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="tw:tw:py-6">
-                <div class="tw:w-full tw:h-px tw:bg-gradient-to-r tw:from-transparent tw:via-gray-300 tw:to-transparent"></div>
-            </div>
-
-            <div class="tw:bg-white tw:rounded-2xl tw:shadow-lg tw:p-8 tw:animate-fade-in-up tw:delay-100">
-                <h1 class="tw:text-xl tw:text-center tw:font-bold tw:bg-gradient-to-r tw:from-amber-500 tw:to-orange-500 tw:bg-clip-text tw:text-transparent tw:mb-8 tw:flex tw:items-center tw:justify-center tw:gap-3">
-                    <span class="tw:text-2xl">💎</span>
-                    <span>{{ t('about.sponsor') }}</span>
-                </h1>
-                <div class="tw:flex tw:flex-wrap tw:justify-center tw:gap-6">
-                    <div
-                        v-for="sponsor in sponsors"
-                        :key="sponsor.id"
-                        class="tw:flex tw:flex-col tw:items-center tw:w-44 tw:p-5 tw:bg-gradient-to-br tw:from-amber-50 tw:to-orange-50 tw:rounded-2xl tw:shadow-md tw:cursor-pointer tw:hover:shadow-2xl tw:hover:-translate-y-2 tw:transition-all duration-300 tw:group tw:border tw:border-amber-100"
-                        @click="contant(sponsor)"
-                    >
-                        <div class="tw:w-24 tw:h-24 tw:flex tw:items-center tw:justify-center tw:bg-gradient-to-br tw:from-white tw:to-amber-100 tw:rounded-2xl tw:p-3 tw:mb-4 tw:group-hover:tw:scale-110 tw:transition-transform duration-300">
-                            <img class="tw:max-w-full tw:max-h-full tw:object-contain" :src="sponsor.imageUrl" :alt="sponsor.name">
-                        </div>
-                        <h2 class="tw:text-base tw:font-bold tw:text-gray-800 tw:group-hover:tw:text-amber-600 tw:transition-colors">{{ sponsor.name }}</h2>
-                        <span class="tw:text-xs tw:text-amber-600 tw:bg-amber-100 tw:px-3 tw:py-1 tw:rounded-full tw:mt-3 tw:font-medium">
-                            {{ sponsor.type }}
-                        </span>
                     </div>
                 </div>
             </div>

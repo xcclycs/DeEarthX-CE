@@ -65,7 +65,7 @@
     "filter_mods_current": "Verificando actualmente",
     "filter_mods_completed": "¡Filtrado completado! Se identificaron {filtered} mods de cliente, se movieron {moved}",
     "filter_mods_error": "Filtrado fallido",
-    "start_production": "Iniciar creación, ¡no cambies de menú!",
+    "start_production": "Iniciar creación",
     "production_complete": "¡Creación del servidor completada! Duración {time} segundos!",
     "please_select_file": "Por favor arrastra o selecciona un archivo primero",
     "only_zip_mrpack": "Solo se pueden subir archivos .zip y .mrpack",

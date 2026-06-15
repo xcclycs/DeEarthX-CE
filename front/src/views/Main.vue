@@ -6,7 +6,8 @@ import type { UploadFile, UploadChangeParam } from 'ant-design-vue';
 import { sendNotification } from '@tauri-apps/plugin-notification';
 import { SelectProps } from 'ant-design-vue/es/vc-select';
 import { useI18n } from 'vue-i18n';
-import { getSocketIO, disconnectSocket } from '../utils/socket';
+import { getProgressState, getProgressSocket, getExistingSocket, resetProgressState } from '../stores/progressStore';
+import type { Socket } from 'socket.io-client';
 
 const { t } = useI18n();
 
@@ -22,9 +23,8 @@ interface Template {
     };
 }
 
-// 进度步骤配置
-const showSteps = ref(false);
-const currentStep = ref(0);
+// 进度步骤配置 - 使用共享 store 状态
+const progressState = getProgressState();
 
 // 模板选择相关
 const showTemplateModal = ref(false);
@@ -94,15 +94,7 @@ function resetState() {
     uploadDisabled.value = false;
     startButtonDisabled.value = false;
     selectedFileName.value = '';
-    showSteps.value = false;
-    currentStep.value = 0;
-    unzipProgress.value = { status: 'active', percent: 0, display: true };
-    downloadProgress.value = { status: 'active', percent: 0, display: true };
-    downloadCompleted.value = 0;
-    downloadTotal.value = 0;
-    lastDownloadUpdateTime = 0;
-    _downloadPendingIndex = 0;
-    _downloadPendingTotal = 0;
+    resetProgressState();
     const killCoreProcess = inject("killCoreProcess");
     if (killCoreProcess && typeof killCoreProcess === 'function') {
         killCoreProcess();
@@ -183,54 +175,17 @@ const currentTemplateName = computed(() => {
     return template ? template.metadata.name : t('home.template_official_loader');
 });
 
-// 进度显示相关
-interface ProgressStatus {
-    status: 'active' | 'success' | 'exception' | 'normal';
-    percent: number;
-    display: boolean;
-    uploadedSize?: number;
-    totalSize?: number;
-    speed?: number;
-    remainingTime?: number;
-}
-const unzipProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
-const downloadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: true });
-const downloadDescription = ref('');
-const downloadCompleted = ref(0);
-const downloadTotal = ref(0);
+// 进度显示相关 - 使用共享 store
+const unzipProgress = progressState.unzipProgress;
+const downloadProgress = progressState.downloadProgress;
+const uploadProgress = progressState.uploadProgress;
+const serverInstallProgress = progressState.serverInstallProgress;
+const filterModsProgress = progressState.filterModsProgress;
+const serverInstallInfo = progressState.serverInstallInfo;
+const filterModsInfo = progressState.filterModsInfo;
 let lastDownloadUpdateTime = 0;
 let _downloadPendingIndex = 0;
 let _downloadPendingTotal = 0;
-const uploadProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
-const serverInstallProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
-const filterModsProgress = ref<ProgressStatus>({ status: 'active', percent: 0, display: false });
-const startTime = ref<number>(0);
-
-const serverInstallInfo = ref({
-  modpackName: '',
-  minecraftVersion: '',
-  loaderType: '',
-  loaderVersion: '',
-  currentStep: '',
-  stepIndex: 0,
-  totalSteps: 0,
-  message: '',
-  status: 'idle' as 'idle' | 'installing' | 'completed' | 'error',
-  error: '',
-  installPath: '',
-  duration: 0
-});
-
-const filterModsInfo = ref({
-  totalMods: 0,
-  currentMod: 0,
-  modName: '',
-  filteredCount: 0,
-  movedCount: 0,
-  status: 'idle' as 'idle' | 'filtering' | 'completed' | 'error',
-  error: '',
-  duration: 0
-});
 
 // 格式化文件大小
 function formatFileSize(bytes: number): string {
@@ -251,7 +206,8 @@ function formatTime(seconds: number): string {
 // 运行DeEarthX核心功能
 async function runDeEarthX(file: File) {
     message.success(t('home.start_production'));
-    showSteps.value = true;
+    progressState.isMaking = true;
+    progressState.showSteps = true;
 
     const formData = new FormData();
     formData.append('file', file);
@@ -266,8 +222,10 @@ async function runDeEarthX(file: File) {
             url += `&template=${encodeURIComponent(selectedTemplate.value)}`;
         }
 
-        uploadProgress.value = { status: 'active', percent: 0, display: true };
-        startTime.value = Date.now();
+        uploadProgress.status = 'active';
+        uploadProgress.percent = 0;
+        uploadProgress.display = true;
+        progressState.startTime = Date.now();
 
         await new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -276,43 +234,40 @@ async function runDeEarthX(file: File) {
             xhr.upload.addEventListener('progress', (event) => {
                 if (event.lengthComputable) {
                     const percent = Math.round((event.loaded / event.total) * 100);
-                    uploadProgress.value.percent = percent;
-                    uploadProgress.value.uploadedSize = event.loaded;
-                    uploadProgress.value.totalSize = event.total;
+                    uploadProgress.percent = percent;
+                    uploadProgress.uploadedSize = event.loaded;
+                    uploadProgress.totalSize = event.total;
                     
-                    // 计算上传速度
-                    const elapsedTime = (Date.now() - startTime.value) / 1000;
+                    const elapsedTime = (Date.now() - progressState.startTime) / 1000;
                     if (elapsedTime > 0) {
-                        uploadProgress.value.speed = event.loaded / elapsedTime;
-                        
-                        // 计算剩余时间
+                        uploadProgress.speed = event.loaded / elapsedTime;
                         const remainingBytes = event.total - event.loaded;
-                        uploadProgress.value.remainingTime = remainingBytes / uploadProgress.value.speed;
+                        uploadProgress.remainingTime = remainingBytes / uploadProgress.speed;
                     }
                 }
             });
 
             xhr.addEventListener('load', () => {
                 if (xhr.status >= 200 && xhr.status < 300) {
-                    uploadProgress.value.status = 'success';
-                    uploadProgress.value.percent = 100;
+                    uploadProgress.status = 'success';
+                    uploadProgress.percent = 100;
                     setTimeout(() => {
-                        uploadProgress.value.display = false;
+                        uploadProgress.display = false;
                     }, 2000);
                     resolve(xhr.response);
                 } else {
-                    uploadProgress.value.status = 'exception';
+                    uploadProgress.status = 'exception';
                     reject(new Error(`HTTP ${xhr.status}`));
                 }
             });
 
             xhr.addEventListener('error', () => {
-                uploadProgress.value.status = 'exception';
+                uploadProgress.status = 'exception';
                 reject(new Error('网络错误'));
             });
 
             xhr.addEventListener('abort', () => {
-                uploadProgress.value.status = 'exception';
+                uploadProgress.status = 'exception';
                 reject(new Error('上传已取消'));
             });
 
@@ -321,7 +276,7 @@ async function runDeEarthX(file: File) {
     } catch (error) {
         console.error('请求失败:', error);
         message.error(t('home.request_failed'));
-        uploadProgress.value.status = 'exception';
+        uploadProgress.status = 'exception';
         resetState();
     }
 }
@@ -401,30 +356,15 @@ function handleError(result: any) {
     }
 }
 
-// 更新窗口进度
-function updateWindowProgress() {
-    (window as any).progressData = {
-        uploadProgress: uploadProgress.value,
-        unzipProgress: unzipProgress.value,
-        downloadProgress: downloadProgress.value,
-        downloadDescription: downloadDescription.value,
-        serverInstallProgress: serverInstallProgress.value,
-        filterModsProgress: filterModsProgress.value,
-        serverInstallInfo: serverInstallInfo.value,
-        filterModsInfo: filterModsInfo.value
-    };
-}
-
 // 更新解压进度
 function updateUnzipProgress(result: { current: number; total: number }) {
-    unzipProgress.value.percent = Math.round((result.current / result.total) * 100);
+    unzipProgress.percent = Math.round((result.current / result.total) * 100);
     if (result.current === result.total) {
-        unzipProgress.value.status = 'success';
+        unzipProgress.status = 'success';
         setTimeout(() => {
-            unzipProgress.value.display = false;
+            unzipProgress.display = false;
         }, 2000);
     }
-    updateWindowProgress();
 }
 
 // 更新下载进度
@@ -440,22 +380,22 @@ function updateDownloadProgress(result: { index: number; total: number; name?: s
 }
 
 function _flushDownloadProgress() {
-    downloadCompleted.value = Math.max(downloadCompleted.value, _downloadPendingIndex);
-    downloadTotal.value = _downloadPendingTotal;
-    downloadProgress.value.percent = Math.round((downloadCompleted.value / _downloadPendingTotal) * 100);
-    if (downloadProgress.value.percent >= 100) {
-        downloadProgress.value.status = 'success';
+    progressState.downloadCompleted = Math.max(progressState.downloadCompleted, _downloadPendingIndex);
+    progressState.downloadTotal = _downloadPendingTotal;
+    downloadProgress.percent = Math.round((progressState.downloadCompleted / _downloadPendingTotal) * 100);
+    if (downloadProgress.percent >= 100) {
+        downloadProgress.status = 'success';
         setTimeout(() => {
-            downloadProgress.value.display = false;
+            downloadProgress.display = false;
         }, 2000);
     }
-    updateWindowProgress();
 }
 
 // 处理完成状态
 function handleFinish(result: number) {
     const timeSpent = Math.round(result / 1000);
-    currentStep.value++;
+    progressState.currentStep++;
+    progressState.isMaking = false;
     message.success(t('home.production_complete', { time: timeSpent }));
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
 
@@ -465,144 +405,228 @@ function handleFinish(result: number) {
 
 // 处理服务端安装开始
 function handleServerInstallStart(result: any) {
-    serverInstallInfo.value = {
-        modpackName: result.modpackName,
-        minecraftVersion: result.minecraftVersion,
-        loaderType: result.loaderType,
-        loaderVersion: result.loaderVersion,
-        currentStep: '',
-        stepIndex: 0,
-        totalSteps: 0,
-        message: 'Starting installation...',
-        status: 'installing',
-        error: '',
-        installPath: '',
-        duration: 0
-    };
-    serverInstallProgress.value = { status: 'active', percent: 0, display: true };
-    updateWindowProgress();
+    serverInstallInfo.modpackName = result.modpackName;
+    serverInstallInfo.minecraftVersion = result.minecraftVersion;
+    serverInstallInfo.loaderType = result.loaderType;
+    serverInstallInfo.loaderVersion = result.loaderVersion;
+    serverInstallInfo.currentStep = '';
+    serverInstallInfo.stepIndex = 0;
+    serverInstallInfo.totalSteps = 0;
+    serverInstallInfo.message = 'Starting installation...';
+    serverInstallInfo.status = 'installing';
+    serverInstallInfo.error = '';
+    serverInstallInfo.installPath = '';
+    serverInstallInfo.duration = 0;
+    serverInstallProgress.status = 'active';
+    serverInstallProgress.percent = 0;
+    serverInstallProgress.display = true;
 }
 
 // 处理服务端安装步骤
 function handleServerInstallStep(result: any) {
-    serverInstallInfo.value.currentStep = result.step;
-    serverInstallInfo.value.stepIndex = result.stepIndex;
-    serverInstallInfo.value.totalSteps = result.totalSteps;
-    serverInstallInfo.value.message = result.message || result.step;
+    serverInstallInfo.currentStep = result.step;
+    serverInstallInfo.stepIndex = result.stepIndex;
+    serverInstallInfo.totalSteps = result.totalSteps;
+    serverInstallInfo.message = result.message || result.step;
     
-    // 计算总体进度
     const overallProgress = (result.stepIndex / result.totalSteps) * 100;
-    serverInstallProgress.value.percent = Math.round(overallProgress);
-    updateWindowProgress();
+    serverInstallProgress.percent = Math.round(overallProgress);
 }
 
 // 处理服务端安装进度
 function handleServerInstallProgress(result: any) {
-    serverInstallInfo.value.currentStep = result.step;
-    serverInstallInfo.value.message = result.message || result.step;
-    serverInstallProgress.value.percent = result.progress;
-    updateWindowProgress();
+    serverInstallInfo.currentStep = result.step;
+    serverInstallInfo.message = result.message || result.step;
+    serverInstallProgress.percent = result.progress;
 }
 
 // 处理服务端安装完成
 function handleServerInstallComplete(result: any) {
-    serverInstallInfo.value.status = 'completed';
-    serverInstallInfo.value.installPath = result.installPath;
-    serverInstallInfo.value.duration = result.duration;
-    serverInstallInfo.value.message = t('home.server_install_completed');
-    serverInstallProgress.value = { status: 'success', percent: 100, display: true };
+    serverInstallInfo.status = 'completed';
+    serverInstallInfo.installPath = result.installPath;
+    serverInstallInfo.duration = result.duration;
+    serverInstallInfo.message = t('home.server_install_completed');
+    serverInstallProgress.status = 'success';
+    serverInstallProgress.percent = 100;
+    serverInstallProgress.display = true;
     
-    // 跳转到完成步骤
-    currentStep.value++;
+    progressState.currentStep++;
     
     const timeSpent = Math.round(result.duration / 1000);
     message.success(t('home.server_install_completed') + ` ${t('home.server_install_duration')}: ${timeSpent}s`);
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
     
-    // 8秒后隐藏进度
     setTimeout(() => {
-        serverInstallProgress.value.display = false;
-        updateWindowProgress();
+        serverInstallProgress.display = false;
     }, 8000);
-    updateWindowProgress();
 }
 
 // 处理服务端安装错误
 function handleServerInstallError(result: any) {
-    serverInstallInfo.value.status = 'error';
-    serverInstallInfo.value.error = result.error;
-    serverInstallInfo.value.message = result.error;
-    serverInstallProgress.value = { status: 'exception', percent: serverInstallProgress.value.percent, display: true };
+    serverInstallInfo.status = 'error';
+    serverInstallInfo.error = result.error;
+    serverInstallInfo.message = result.error;
+    serverInstallProgress.status = 'exception';
     
     notification.error({
         message: t('home.server_install_error'),
         description: result.error,
         duration: 0
     });
-    updateWindowProgress();
 }
 
 // 处理筛选模组开始
 function handleFilterModsStart(result: any) {
-    filterModsInfo.value = {
-        totalMods: result.totalMods,
-        currentMod: 0,
-        modName: '',
-        filteredCount: 0,
-        movedCount: 0,
-        status: 'filtering',
-        error: '',
-        duration: 0
-    };
-    filterModsProgress.value = { status: 'active', percent: 0, display: true };
-    updateWindowProgress();
+    filterModsInfo.totalMods = result.totalMods;
+    filterModsInfo.currentMod = 0;
+    filterModsInfo.modName = '';
+    filterModsInfo.filteredCount = 0;
+    filterModsInfo.movedCount = 0;
+    filterModsInfo.status = 'filtering';
+    filterModsInfo.error = '';
+    filterModsInfo.duration = 0;
+    filterModsProgress.status = 'active';
+    filterModsProgress.percent = 0;
+    filterModsProgress.display = true;
 }
 
 // 处理筛选模组进度
 function handleFilterModsProgress(result: any) {
-    filterModsInfo.value.currentMod = result.current;
-    filterModsInfo.value.modName = result.modName;
+    filterModsInfo.currentMod = result.current;
+    filterModsInfo.modName = result.modName;
     
     const percent = Math.round((result.current / result.total) * 100);
-    filterModsProgress.value.percent = percent;
-    updateWindowProgress();
+    filterModsProgress.percent = percent;
 }
 
 // 处理筛选模组完成
 function handleFilterModsComplete(result: any) {
-    filterModsInfo.value.status = 'completed';
-    filterModsInfo.value.filteredCount = result.filteredCount;
-    filterModsInfo.value.movedCount = result.movedCount;
-    filterModsInfo.value.duration = result.duration;
-    filterModsProgress.value = { status: 'success', percent: 100, display: true };
+    filterModsInfo.status = 'completed';
+    filterModsInfo.filteredCount = result.filteredCount;
+    filterModsInfo.movedCount = result.movedCount;
+    filterModsInfo.duration = result.duration;
+    filterModsProgress.status = 'success';
+    filterModsProgress.percent = 100;
+    filterModsProgress.display = true;
     
     const timeSpent = Math.round(result.duration / 1000);
     message.success(t('home.filter_mods_completed', { filtered: result.filteredCount, moved: result.movedCount }) + ` ${t('home.server_install_duration')}: ${timeSpent}s`);
     
-    // 8秒后隐藏进度
     setTimeout(() => {
-        filterModsProgress.value.display = false;
-        updateWindowProgress();
+        filterModsProgress.display = false;
     }, 8000);
-    updateWindowProgress();
 }
 
 // 处理筛选模组错误
 function handleFilterModsError(result: any) {
-    filterModsInfo.value.status = 'error';
-    filterModsInfo.value.error = result.error;
-    filterModsProgress.value = { status: 'exception', percent: filterModsProgress.value.percent, display: true };
+    filterModsInfo.status = 'error';
+    filterModsInfo.error = result.error;
+    filterModsProgress.status = 'exception';
     
     notification.error({
         message: t('home.filter_mods_error'),
         description: result.error,
         duration: 0
     });
-    updateWindowProgress();
 }
 
-// Socket.IO 引用
-let socket: any = null;
+// Socket.IO 引用 - 使用 store 管理的 socket
+let socket: Socket | null = null;
+
+// 已注册的事件处理函数引用，用于清理
+const socketHandlers: Record<string, (...args: any[]) => void> = {};
+
+// 注册 Socket 事件监听器
+function registerSocketListeners(sock: Socket) {
+    // 先清理旧的监听器
+    unregisterSocketListeners(sock);
+
+    socketHandlers['connect'] = () => {
+        message.success(t('home.ws_connected'));
+    };
+    socketHandlers['error'] = (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            handleError(parsed.message);
+        } catch {
+            handleError(data);
+        }
+    };
+    socketHandlers['info'] = (data: any) => {
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            if (parsed.message) {
+                message.info(parsed.message);
+            }
+        } catch {
+            message.info(data);
+        }
+    };
+    socketHandlers['changed'] = () => {
+        progressState.currentStep++;
+    };
+    socketHandlers['unzip'] = (data: any) => {
+        updateUnzipProgress(data);
+    };
+    socketHandlers['downloading'] = (data: any) => {
+        updateDownloadProgress(data);
+    };
+    socketHandlers['finish'] = (data: any) => {
+        handleFinish(data);
+    };
+    socketHandlers['server_install_start'] = (data: any) => {
+        handleServerInstallStart(data);
+    };
+    socketHandlers['server_install_step'] = (data: any) => {
+        handleServerInstallStep(data);
+    };
+    socketHandlers['server_install_progress'] = (data: any) => {
+        handleServerInstallProgress(data);
+    };
+    socketHandlers['server_install_complete'] = (data: any) => {
+        handleServerInstallComplete(data);
+    };
+    socketHandlers['server_install_error'] = (data: any) => {
+        handleServerInstallError(data);
+    };
+    socketHandlers['filter_mods_start'] = (data: any) => {
+        handleFilterModsStart(data);
+    };
+    socketHandlers['filter_mods_progress'] = (data: any) => {
+        handleFilterModsProgress(data);
+    };
+    socketHandlers['filter_mods_complete'] = (data: any) => {
+        handleFilterModsComplete(data);
+    };
+    socketHandlers['filter_mods_error'] = (data: any) => {
+        handleFilterModsError(data);
+    };
+    socketHandlers['connect_error'] = () => {
+        notification.error({
+            message: t('home.ws_error_title'),
+            description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
+            duration: 0
+        });
+        resetState();
+    };
+
+    // 注册所有处理器
+    for (const [event, handler] of Object.entries(socketHandlers)) {
+        sock.on(event, handler);
+    }
+}
+
+// 移除 Socket 事件监听器
+function unregisterSocketListeners(sock: Socket | null) {
+    if (!sock) return;
+    for (const [event, handler] of Object.entries(socketHandlers)) {
+        sock.off(event, handler);
+    }
+    // 清空处理器引用
+    for (const key of Object.keys(socketHandlers)) {
+        delete socketHandlers[key];
+    }
+}
 
 // 开始处理文件
 function handleStartProcess() {
@@ -616,108 +640,49 @@ function handleStartProcess() {
 
     startButtonDisabled.value = true;
     uploadDisabled.value = true;
-    showSteps.value = true;
+    progressState.showSteps = true;
 
     message.loading(t('home.ws_connecting'));
     
-    socket = getSocketIO();
+    socket = getProgressSocket();
+    registerSocketListeners(socket);
 
-    socket.on('connect', () => {
+    // connect 事件在 registerSocketListeners 中已经注册
+    // 如果已经连接，直接开始制作
+    if (socket.connected) {
         message.success(t('home.ws_connected'));
         runDeEarthX(file);
-    });
-
-    socket.on('error', (data: any) => {
-        try {
-            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-            handleError(parsed.message);
-        } catch {
-            handleError(data);
-        }
-    });
-
-    socket.on('info', (data: any) => {
-        try {
-            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-            if (parsed.message) {
-                message.info(parsed.message);
-            }
-        } catch {
-            message.info(data);
-        }
-    });
-
-    socket.on('changed', () => {
-        currentStep.value++;
-    });
-
-    socket.on('unzip', (data: any) => {
-        updateUnzipProgress(data);
-    });
-
-    socket.on('downloading', (data: any) => {
-        updateDownloadProgress(data);
-    });
-
-    socket.on('finish', (data: any) => {
-        handleFinish(data);
-    });
-
-    socket.on('server_install_start', (data: any) => {
-        handleServerInstallStart(data);
-    });
-
-    socket.on('server_install_step', (data: any) => {
-        handleServerInstallStep(data);
-    });
-
-    socket.on('server_install_progress', (data: any) => {
-        handleServerInstallProgress(data);
-    });
-
-    socket.on('server_install_complete', (data: any) => {
-        handleServerInstallComplete(data);
-    });
-
-    socket.on('server_install_error', (data: any) => {
-        handleServerInstallError(data);
-    });
-
-    socket.on('filter_mods_start', (data: any) => {
-        handleFilterModsStart(data);
-    });
-
-    socket.on('filter_mods_progress', (data: any) => {
-        handleFilterModsProgress(data);
-    });
-
-    socket.on('filter_mods_complete', (data: any) => {
-        handleFilterModsComplete(data);
-    });
-
-    socket.on('filter_mods_error', (data: any) => {
-        handleFilterModsError(data);
-    });
+    } else {
+        // 覆盖 connect 处理器以在连接后开始制作
+        socket.off('connect', socketHandlers['connect']);
+        socket.on('connect', () => {
+            message.success(t('home.ws_connected'));
+            runDeEarthX(file);
+        });
+    }
 
     socket.on('disconnect', () => {
         console.log('Socket.IO 连接关闭');
     });
-
-    socket.on('connect_error', () => {
-        notification.error({
-            message: t('home.ws_error_title'),
-            description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
-            duration: 0
-        });
-        resetState();
-    });
 }
 
-// 组件卸载时断开连接
-onUnmounted(() => {
-    if (socket) {
-        socket.disconnect();
+// 组件挂载时恢复进度状态
+onMounted(() => {
+    if (progressState.isMaking) {
+        // 如果正在制作中，恢复显示并重新注册 socket 监听器
+        const existingSocket = getExistingSocket();
+        if (existingSocket && existingSocket.connected) {
+            socket = existingSocket;
+            registerSocketListeners(existingSocket);
+        }
     }
+});
+
+// 组件卸载时移除事件监听器，但保持 socket 连接
+onUnmounted(() => {
+    unregisterSocketListeners(socket);
+    socket = null;
+    // 不主动断开 socket，由 store 管理生命周期
 });
 </script>
 <template>
@@ -758,11 +723,11 @@ onUnmounted(() => {
                 </a-button>
             </div>
         </div>
-        <div v-if="showSteps"
+        <div v-if="progressState.showSteps"
             class="tw:fixed tw:bottom-2 tw:left-1/2 tw:-translate-x-1/2 tw:w-[65%] tw:h-20 tw:flex tw:justify-center tw:items-center tw:text-sm tw:bg-white tw:rounded-xl tw:shadow-lg tw:px-4 tw:ml-10">
-            <a-steps :current="currentStep" :items="stepItems" size="small" />
+            <a-steps :current="progressState.currentStep" :items="stepItems" size="small" />
         </div>
-        <div v-if="showSteps" ref="logContainer"
+        <div v-if="progressState.showSteps" ref="logContainer"
             class="tw:absolute tw:right-2 tw:bottom-32 tw:h-80 tw:w-64 tw:rounded-xl tw:overflow-y-auto">
             <a-card :title="t('home.progress_title')" :bordered="true" class="tw:h-full">
                 <div v-if="uploadProgress.display" class="tw:mb-4">
@@ -786,7 +751,7 @@ onUnmounted(() => {
                     <h1 class="tw:text-sm">{{ t('home.download_progress') }}</h1>
                     <a-progress :percent="downloadProgress.percent" :status="downloadProgress.status" size="small" />
                     <div class="tw:text-xs tw:text-gray-400 tw:mt-1">
-                        下载 {{ downloadCompleted }}/{{ downloadTotal }}
+                        下载 {{ progressState.downloadCompleted }}/{{ progressState.downloadTotal }}
                     </div>
                 </div>
                 <div v-if="serverInstallProgress.display" class="tw:mb-4">

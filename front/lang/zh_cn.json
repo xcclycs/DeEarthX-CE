@@ -19,7 +19,10 @@
     "error": "错误",
     "success": "成功",
     "warning": "警告",
-    "info": "提示"
+    "info": "提示",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "还原"
   },
   "menu": {
     "home": "主页",
@@ -65,8 +68,11 @@
     "filter_mods_current": "当前检查",
     "filter_mods_completed": "筛选完成！识别到 {filtered} 个客户端模组，移动 {moved} 个",
     "filter_mods_error": "筛选失败",
-    "start_production": "开始制作，请勿切换菜单！",
+    "start_production": "开始制作",
     "production_complete": "服务端制作完成！共用时 {time} 秒！",
+    "making_indicator": "正在制作服务端",
+    "making_step": "步骤",
+    "making_progress": "进度",
     "please_select_file": "请先拖拽或选择文件",
     "only_zip_mrpack": "仅支持 .zip 和 .mrpack 文件",
     "file_prepared": "文件准备完成",
@@ -197,6 +203,8 @@
     "system_oaf_desc": "服务端制作完成后自动打开目录",
     "system_autozip_name": "自动打包成 zip",
     "system_autozip_desc": "服务端制作完成后自动打包成 zip（开服模式不打包）",
+    "system_show_ads_name": "显示广告",
+    "system_show_ads_desc": "在标题栏右侧显示赞助商广告",
     "switch_on": "开",
     "switch_off": "关",
     "language_title": "语言设置",

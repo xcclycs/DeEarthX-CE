@@ -65,7 +65,7 @@
     "filter_mods_current": "Vérification en cours",
     "filter_mods_completed": "Filtrage terminé ! {filtered} mods clients identifiés, {moved} déplacés",
     "filter_mods_error": "Échec du filtrage",
-    "start_production": "Démarrer la création, ne changez pas de menu !",
+    "start_production": "Démarrer la création",
     "production_complete": "Création du serveur terminée ! Durée {time} secondes !",
     "please_select_file": "Veuillez d'abord glisser-déposer ou sélectionner un fichier",
     "only_zip_mrpack": "Seuls les fichiers .zip et .mrpack peuvent être téléchargés",
