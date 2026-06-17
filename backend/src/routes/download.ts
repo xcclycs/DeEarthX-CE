@@ -4,6 +4,47 @@ import { logger } from "../utils/logger.js";
 
 const cache = new Map<string, { data: any; time: number }>();
 
+// 镜像源回退辅助函数
+const BMCLAPI_URL = "https://bmclapi2.bangbang93.com";
+const ORIGIN_URLS: Record<string, string> = {
+  "minecraft-versions": "https://piston-meta.mojang.com/mc/game/version_manifest.json",
+  "forge-promos": "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json",
+  "forge": "https://maven.minecraftforge.net/net/minecraftforge/forge",
+  "neoforge": "https://maven.neoforged.net/releases/net/neoforged/neoforge",
+  "fabric": "https://meta.fabricmc.net/v1/versions/loader",
+};
+
+async function fetchWithFallback<T>(
+  bmclapiPath: string,
+  originUrl: string,
+  cacheKey: string,
+  options?: { timeout?: number; headers?: Record<string, string> }
+): Promise<T> {
+  const bmclapiUrl = `${BMCLAPI_URL}${bmclapiPath}`;
+  
+  try {
+    const data = await got.get(bmclapiUrl, {
+      headers: { ...options?.headers, "User-Agent": "DeEarthX" },
+      timeout: { request: options?.timeout || 30000 },
+      dnsCache: true,
+    }).json<T>();
+    return data;
+  } catch (err: any) {
+    logger.warn(`BMCLAPI 请求失败 (${bmclapiUrl})，回退到原始源: ${err.message}`);
+    try {
+      const data = await got.get(originUrl, {
+        headers: { ...options?.headers, "User-Agent": "DeEarthX" },
+        timeout: { request: options?.timeout || 30000 },
+        dnsCache: true,
+      }).json<T>();
+      return data;
+    } catch (originErr: any) {
+      logger.error(`原始源也请求失败 (${originUrl}): ${originErr.message}`);
+      throw new Error(`所有镜像源均不可用: ${err.message}`);
+    }
+  }
+}
+
 function getCached<T>(key: string): T | null {
   const entry = cache.get(key);
   if (entry) return entry.data as T;
@@ -74,19 +115,18 @@ export function setupDownloadRoutes(app: any): void {
       const cached = getCached<{ versions: { id: string; type: string }[] }>(cacheKey);
       if (cached) return res.json(cached);
 
-      const url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json";
-
-      const data = await got.get(url, {
-        headers: { "User-Agent": "DeEarthX" },
-        timeout: { request: 30000 }
-      }).json<{ versions: MinecraftVersionEntry[] }>();
+      const data = await fetchWithFallback<{ versions: MinecraftVersionEntry[] }>(
+        "/mc/game/version_manifest.json",
+        "https://piston-meta.mojang.com/mc/game/version_manifest.json",
+        cacheKey
+      );
 
       const result = { versions: data.versions.map(v => ({ id: v.id, type: v.type })) };
       setCache(cacheKey, result);
       res.json(result);
     } catch (err) {
       logger.error("获取 Minecraft 版本列表失败", err as Error);
-      res.status(500).json({ error: "获取版本列表失败" });
+      res.status(500).json({ error: "获取版本列表失败", details: (err as Error).message });
     }
   });
 
@@ -96,10 +136,11 @@ export function setupDownloadRoutes(app: any): void {
       const cached = getCached<Record<string, { latest?: string; recommended?: string }>>(cacheKey);
       if (cached) return res.json(cached);
 
-      const data = await got.get("https://bmclapi2.bangbang93.com/forge/promos", {
-        headers: { "User-Agent": "DeEarthX" },
-        timeout: { request: 30000 }
-      }).json<ForgePromoEntry[]>();
+      const data = await fetchWithFallback<ForgePromoEntry[]>(
+        "/forge/promos",
+        "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json",
+        cacheKey
+      );
 
       const promos: Record<string, { latest?: string; recommended?: string }> = {};
       for (const entry of data) {
@@ -112,7 +153,7 @@ export function setupDownloadRoutes(app: any): void {
       res.json(promos);
     } catch (err) {
       logger.error("获取 Forge Promos 失败", err as Error);
-      res.status(500).json({ error: "获取 Forge Promos 失败" });
+      res.status(500).json({ error: "获取 Forge Promos 失败", details: (err as Error).message });
     }
   });
 
@@ -125,10 +166,11 @@ export function setupDownloadRoutes(app: any): void {
       const cached = getCached<{ version: string; mcversion: string; hash?: string }[]>(cacheKey);
       if (cached) return res.json(cached);
 
-      const data = await got.get(`https://bmclapi2.bangbang93.com/forge/minecraft/${mcver}`, {
-        headers: { "User-Agent": "DeEarthX" },
-        timeout: { request: 30000 }
-      }).json<ForgeBuild[]>();
+      const data = await fetchWithFallback<ForgeBuild[]>(
+        `/forge/minecraft/${mcver}`,
+        `https://maven.minecraftforge.net/net/minecraftforge/forge/index_${mcver}.json`,
+        cacheKey
+      );
 
       const versions = data.map(v => {
         const installer = v.files?.find(f => f.category === "installer" && f.format === "jar");
@@ -138,7 +180,7 @@ export function setupDownloadRoutes(app: any): void {
       res.json(versions);
     } catch (err) {
       logger.error("获取 Forge 版本列表失败", err as Error);
-      res.status(500).json({ error: "获取 Forge 版本列表失败" });
+      res.status(500).json({ error: "获取 Forge 版本列表失败", details: (err as Error).message });
     }
   });
 
@@ -151,10 +193,11 @@ export function setupDownloadRoutes(app: any): void {
       const cached = getCached<any[]>(cacheKey);
       if (cached) return res.json(cached);
 
-      const data = await got.get(`https://bmclapi2.bangbang93.com/neoforge/list/${mcver}`, {
-        headers: { "User-Agent": "DeEarthX" },
-        timeout: { request: 30000 }
-      }).json<NeoForgeBuild[]>();
+      const data = await fetchWithFallback<NeoForgeBuild[]>(
+        `/neoforge/list/${mcver}`,
+        `https://maven.neoforged.net/releases/net/neoforged/neoforge/index_${mcver}.json`,
+        cacheKey
+      );
 
       const versions = data.map((v, i) => ({
         version: v.version, mcversion: v.mcversion,
@@ -164,7 +207,7 @@ export function setupDownloadRoutes(app: any): void {
       res.json(versions);
     } catch (err) {
       logger.error("获取 NeoForge 版本列表失败", err as Error);
-      res.status(500).json({ error: "获取 NeoForge 版本列表失败" });
+      res.status(500).json({ error: "获取 NeoForge 版本列表失败", details: (err as Error).message });
     }
   });
 
@@ -177,10 +220,11 @@ export function setupDownloadRoutes(app: any): void {
       const cached = getCached<{ version: string; stable: boolean }[]>(cacheKey);
       if (cached) return res.json(cached);
 
-      const data = await got.get(`https://meta.fabricmc.net/v1/versions/loader/${mcver}`, {
-        headers: { "User-Agent": "DeEarthX" },
-        timeout: { request: 30000 }
-      }).json<FabricLoaderEntry[]>();
+      const data = await fetchWithFallback<FabricLoaderEntry[]>(
+        `/fabric-meta/v1/versions/loader/${mcver}`,
+        `https://meta.fabricmc.net/v1/versions/loader/${mcver}`,
+        cacheKey
+      );
 
       const versions = data.map(v => ({ version: v.loader.version, stable: v.loader.stable }));
       versions.sort((a, b) => (b.stable ? 1 : 0) - (a.stable ? 1 : 0));
@@ -188,7 +232,7 @@ export function setupDownloadRoutes(app: any): void {
       res.json(versions);
     } catch (err) {
       logger.error("获取 Fabric 版本列表失败", err as Error);
-      res.status(500).json({ error: "获取 Fabric 版本列表失败" });
+      res.status(500).json({ error: "获取 Fabric 版本列表失败", details: (err as Error).message });
     }
   });
 }

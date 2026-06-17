@@ -134,8 +134,8 @@ export class MessageIO {
     this.send("server_install_complete", { installPath, duration });
   }
 
-  serverInstallError(error: string, step?: string) {
-    this.send("server_install_error", { error, step });
+  serverInstallError(error: string, step?: string, details?: string) {
+    this.send("server_install_error", { error, step, details });
   }
 
   filterModsStart(totalMods: number) {

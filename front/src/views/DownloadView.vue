@@ -1,9 +1,12 @@
 <script lang="ts" setup>
-import { CloudDownloadOutlined } from '@ant-design/icons-vue';
+import { ref } from 'vue';
+import { CloudDownloadOutlined, FileTextOutlined } from '@ant-design/icons-vue';
 import { useI18n } from 'vue-i18n';
 import { useDownload } from '../composables/useDownload';
 
 const { t } = useI18n();
+
+const showErrorDetails = ref(false);
 
 const {
   mcVersions, selectedMcVersion, loadingMcVersions,
@@ -22,6 +25,18 @@ const loaderLabels: Record<string, string> = {
   neoforge: t('download.loader_neoforge'),
   fabric: t('download.loader_fabric')
 };
+
+function exportLog() {
+  const apiHost = import.meta.env.VITE_API_HOST || 'localhost';
+  const apiPort = import.meta.env.VITE_API_PORT || '37019';
+  const downloadUrl = `http://${apiHost}:${apiPort}/logs/download`;
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = 'deearthx.log';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
 </script>
 
 <template>
@@ -158,6 +173,27 @@ const loaderLabels: Record<string, string> = {
           </div>
           <div v-if="serverInstallInfo.status === 'error'" class="tw:text-xs tw:text-red-600 tw:mt-1">
             {{ serverInstallInfo.error }}
+          </div>
+          <div v-if="serverInstallInfo.status === 'error' && serverInstallInfo.errorDetails" class="tw:mt-3 tw:flex tw:flex-col tw:gap-2">
+            <div 
+              class="tw:flex tw:items-center tw:justify-between tw:cursor-pointer tw:py-1 tw:hover:bg-gray-50 tw:rounded tw:px-2" 
+              @click="showErrorDetails = !showErrorDetails"
+            >
+              <span class="tw:text-xs tw:text-gray-500 tw:font-medium">{{ t('download.error_details') }}</span>
+              <span class="tw:text-xs tw:text-gray-400">{{ showErrorDetails ? '▲' : '▼' }}</span>
+            </div>
+            <div v-if="showErrorDetails" class="tw:p-3 tw:bg-gray-50 tw:rounded-lg tw:border tw:border-gray-200 tw:max-h-48 tw:overflow-y-auto">
+              <pre class="tw:text-xs tw:text-gray-600 tw:whitespace-pre-wrap tw:break-all">{{ serverInstallInfo.errorDetails }}</pre>
+            </div>
+            <a-button 
+              type="default" 
+              size="small" 
+              @click="exportLog"
+              class="tw:w-auto tw:self-start"
+            >
+              <template #icon><FileTextOutlined /></template>
+              {{ t('error.export_log') }}
+            </a-button>
           </div>
         </div>
       </div>
