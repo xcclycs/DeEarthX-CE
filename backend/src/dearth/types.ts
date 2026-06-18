@@ -118,5 +118,6 @@ export interface IModCheckConfig {
   enableModrinth: boolean;
   enableMixin: boolean;
   enableHash: boolean;
+  enableMcmod?: boolean;
   timeout: number;
 }

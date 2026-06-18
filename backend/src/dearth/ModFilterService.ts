@@ -4,6 +4,7 @@ import { HashFilter } from "./strategies/HashFilter.js";
 import { MixinFilter } from "./strategies/MixinFilter.js";
 import { DexpubFilter } from "./strategies/DexpubFilter.js";
 import { ModrinthFilter } from "./strategies/ModrinthFilter.js";
+import { McmodFilter } from "./strategies/McmodFilter.js";
 import { IFilterConfig, IFilterStrategy } from "./types.js";
 import { logger } from "../utils/logger.js";
 import { MessageWS } from "../utils/ws.js";
@@ -65,6 +66,19 @@ export class ModFilterService {
     const useReplacement = this.extraStrategies.some(s => s.replacesBuiltin);
 
     if (!useReplacement) {
+      if (this.config.mcmodFilter) {
+        logger.info("开始 Mcmod 检查客户端模组");
+        const mcmodStrategy = new McmodFilter();
+        const mcmodMods = await mcmodStrategy.filter(files);
+
+        mcmodMods.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...mcmodMods);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Mcmod 检查");
+        }
+      }
+
       if (this.config.dexpub) {
         logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
         const dexpubStrategy = new DexpubFilter();
