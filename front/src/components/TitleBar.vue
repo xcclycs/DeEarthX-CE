@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { MinusOutlined, CloseOutlined, LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons-vue';
 import { useI18n } from 'vue-i18n';
 
@@ -29,6 +29,33 @@ async function getAppWindow() {
     return appWindow;
 }
 const isCloseHover = ref(false);
+const hoverSeconds = ref(0);
+let hoverTimer: ReturnType<typeof setInterval> | null = null;
+
+function onCloseEnter() {
+    isCloseHover.value = true;
+    hoverSeconds.value = 0;
+    hoverTimer = setInterval(() => {
+        if (hoverSeconds.value < 5) {
+            hoverSeconds.value++;
+        }
+    }, 1000);
+}
+
+function onCloseLeave() {
+    isCloseHover.value = false;
+    hoverSeconds.value = 0;
+    if (hoverTimer !== null) {
+        clearInterval(hoverTimer);
+        hoverTimer = null;
+    }
+}
+
+onUnmounted(() => {
+    if (hoverTimer !== null) {
+        clearInterval(hoverTimer);
+    }
+});
 
 // 开始拖拽窗口
 async function startDragging(e: MouseEvent) {
@@ -55,7 +82,11 @@ async function close() {
 }
 
 const displayTitle = computed(() => {
-    return isCloseHover.value ? 'Systemmmm' : t('common.app_name');
+    if (!isCloseHover.value) return t('common.app_name');
+    const count = hoverSeconds.value;
+    const ms = 'm'.repeat(count);
+    const bang = count >= 5 ? '!!!' : '';
+    return 'System' + ms + bang;
 });
 </script>
 
@@ -90,7 +121,7 @@ const displayTitle = computed(() => {
             <button class="titlebar-btn minimize" @mousedown.stop @click="minimize" :title="t('common.minimize')">
                 <MinusOutlined />
             </button>
-            <button class="titlebar-btn close" @mouseenter="isCloseHover = true" @mouseleave="isCloseHover = false" @mousedown.stop @click="close" :title="t('common.close')">
+            <button class="titlebar-btn close" @mouseenter="onCloseEnter" @mouseleave="onCloseLeave" @mousedown.stop @click="close" :title="t('common.close')">
                 <CloseOutlined />
             </button>
         </div>

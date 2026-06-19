@@ -8,6 +8,8 @@ interface IModrinthProject {
   categories: string[];
 }
 
+const projectInfoCache = new Map<string, IModrinthProject>();
+
 export class ModrinthFilter implements IFilterStrategy {
   name = "ModrinthFilter";
   private readonly API_BASE = "https://api.modrinth.com/v2";
@@ -28,10 +30,23 @@ export class ModrinthFilter implements IFilterStrategy {
 
   private async fetchProjectInfo(projectIds: string[]): Promise<Map<string, IModrinthProject>> {
     const projectMap = new Map<string, IModrinthProject>();
-    const batchSize = 50;
+    const uncachedIds: string[] = [];
 
-    for (let i = 0; i < projectIds.length; i += batchSize) {
-      const batch = projectIds.slice(i, i + batchSize);
+    for (const id of projectIds) {
+      const cached = projectInfoCache.get(id);
+      if (cached) {
+        projectMap.set(id, cached);
+      } else {
+        uncachedIds.push(id);
+      }
+    }
+
+    if (uncachedIds.length === 0) return projectMap;
+
+    const batchSize = 100;
+
+    for (let i = 0; i < uncachedIds.length; i += batchSize) {
+      const batch = uncachedIds.slice(i, i + batchSize);
       const idsParam = batch.join(",");
 
       try {
@@ -46,12 +61,14 @@ export class ModrinthFilter implements IFilterStrategy {
 
           for (const project of projects) {
             if (project && project.id) {
-              projectMap.set(project.id, {
+              const info: IModrinthProject = {
                 client_side: project.client_side,
                 server_side: project.server_side,
                 project_type: project.project_type,
                 categories: project.categories || []
-              });
+              };
+              projectMap.set(project.id, info);
+              projectInfoCache.set(project.id, info);
             }
           }
         }

@@ -27,12 +27,20 @@ export class HashFilter implements IFilterStrategy {
       }).json<IHashResponse>();
 
       const projectIdToFilename = new Map<string, string>();
-      const projectIds = Object.entries(fileInfoResponse)
-        .map(([hash, info]) => {
-          const filename = hashToFilename.get(hash);
-          if (filename) projectIdToFilename.set(info.project_id, filename);
-          return info.project_id;
-        });
+      const projectIds: string[] = [];
+      const entries = Object.entries(fileInfoResponse);
+      for (const [hash, info] of entries) {
+        const filename = hashToFilename.get(hash);
+        if (filename) {
+          projectIdToFilename.set(info.project_id, filename);
+          projectIds.push(info.project_id);
+        }
+      }
+
+      if (projectIds.length === 0) {
+        logger.debug("Hash check: 无匹配的项目ID");
+        return [];
+      }
 
       const projectsResponse = await got.get(`${this.utils.modrinth_url}/v2/projects?ids=${JSON.stringify(projectIds)}`, {
         headers: { "User-Agent": "DeEarth" }

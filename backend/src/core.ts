@@ -67,6 +67,88 @@ export class Core {
                     this.currentSocket = null;
                 }
             });
+
+            socket.on('guardian_start', (data: any) => {
+                if (!this.guardian) return;
+                const { workDir, javaCommand, serverType } = data || {};
+                if (workDir) {
+                    this.guardian.updateConfig({
+                        workDir,
+                        javaCommand: javaCommand || '',
+                        serverType: serverType || 'unknown'
+                    });
+                }
+                this.guardian.start();
+            });
+
+            socket.on('guardian_stop', () => {
+                this.guardian?.stop();
+            });
+
+            socket.on('guardian_test_ai', () => {
+                if (this.guardian) {
+                    this.guardian.testAI().then(result => {
+                        this.sendGuardianEvent('guardian_test_ai_result', result);
+                    }).catch((err: Error) => {
+                        this.sendGuardianEvent('guardian_test_ai_result', {
+                            success: false,
+                            message: `AI 测试内部错误: ${err.message}`
+                        });
+                    });
+                } else {
+                    this.sendGuardianEvent('guardian_test_ai_result', {
+                        success: false,
+                        message: 'Guardian 模块未初始化，请检查配置后重试'
+                    });
+                }
+            });
+
+            socket.on('guardian_approve', (data: any) => {
+                this.guardian?.approveActions(data?.actionIds || []);
+            });
+
+            socket.on('guardian_reject', (data: any) => {
+                this.guardian?.rejectActions(data?.actionIds || []);
+            });
+
+            socket.on('guardian_rollback', () => {
+                this.guardian?.rollbackLastFix();
+            });
+
+            socket.on('guardian_restart', () => {
+                this.guardian?.confirmRestart();
+            });
+
+            socket.on('guardian_command', (data: any) => {
+                this.guardian?.sendCommand(data?.command || '');
+            });
+
+            socket.on('guardian_get_ai_conversation', () => {
+                if (this.guardian) {
+                    this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
+                }
+            });
+
+            socket.on('guardian_reset_ai_conversation', () => {
+                if (this.guardian) {
+                    this.guardian.resetAIConversations();
+                    this.sendGuardianEvent('guardian_ai_conversation', []);
+                }
+            });
+
+            socket.on('guardian_update_config', (data: any) => {
+                if (!this.guardian) return;
+                this.guardian.updateConfig(data || {});
+                if (data?.ai) {
+                    const current = Config.getConfig();
+                    current.guardian = {
+                        ...current.guardian!,
+                        ai: { ...current.guardian!.ai, ...data.ai }
+                    };
+                    Config.writeConfig(current);
+                    Config.clearCache();
+                }
+            });
         });
     }
 
@@ -116,6 +198,7 @@ export class Core {
         this.setupGalaxyRoutes();
         this.setupJavaRoutes();
         this.setupTemplateRoutes();
+        this.setupGuardianRoutes();
         this.setupPluginRoutes();
         this.setupDownloadRoutes();
     }
@@ -791,163 +874,36 @@ export class Core {
         }
     }
 
-    private registerBuiltinGuardianPlugin(): void {
-        this.pluginManager.registerBuiltinPlugin(
-            {
-                id: "guardian",
-                name: "AI 模式",
-                version: "1.0.0",
-                author: "DeEarthX",
-                description: "AI 驱动的 Minecraft 服务端崩溃检测与自动修复系统。监控服务端运行状态，智能识别崩溃原因，自动执行修复操作。",
-                openSource: true,
-                sourceUrl: "https://github.com/DeEarthX-CE",
-                hasSidebar: true,
-                sidebarItems: [
-                    { key: "guardian-main", label: "AI 模式", route: "guardian-main" }
-                ],
-                defaultConfig: {
-                    aiProvider: "openai",
-                    aiApiKey: "",
-                    aiModel: "gpt-4.1-mini",
-                    aiBaseURL: "https://api.openai.com/v1",
-                    aiMaxTokens: 1500
-                },
-                configLabels: {
-                    aiProvider: "AI 提供商",
-                    aiApiKey: "API 密钥",
-                    aiModel: "模型",
-                    aiBaseURL: "API 地址",
-                    aiMaxTokens: "最大 Token 数"
-                }
-            },
-            {
-                setupRoutes: (_router, app) => {
-                    if (!this.guardian || !app) return;
-
-                    app.get('/guardian/status', (_req: any, res: any) => {
-                        if (!this.guardian) {
-                            return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
-                        }
-                        res.json({
-                            status: 200,
-                            enabled: true,
-                            guardianStatus: this.guardian.getStatus(),
-                            processInfo: this.guardian.getProcessInfo(),
-                            checkpoints: this.guardian.getCheckpoints(),
-                            reports: this.guardian.getReportsList()
-                        });
-                    });
-
-                    app.get('/guardian/logs', (req: any, res: any) => {
-                        if (!this.guardian) {
-                            return res.json({ status: 200, logs: [] });
-                        }
-                        const lines = parseInt(req.query.lines as string) || 100;
-                        const buffer = this.guardian.getLogBuffer();
-                        res.json({ status: 200, logs: buffer.slice(-lines) });
-                    });
-
-                    app.get('/guardian/reports', (_req: any, res: any) => {
-                        if (!this.guardian) {
-                            return res.json({ status: 200, reports: [] });
-                        }
-                        res.json({ status: 200, reports: this.guardian.getReportsList() });
-                    });
-                },
-                setupSocketHandlers: (io) => {
-                    if (!this.guardian) return;
-
-                    io.on('connection', (socket) => {
-                        socket.on('guardian_start', (data: any) => {
-                            if (!this.guardian) return;
-                            const { workDir, javaCommand, serverType } = data || {};
-                            if (workDir) {
-                                this.guardian.updateConfig({
-                                    workDir,
-                                    javaCommand: javaCommand || '',
-                                    serverType: serverType || 'unknown'
-                                });
-                            }
-                            this.guardian.start();
-                        });
-
-                        socket.on('guardian_stop', () => {
-                            this.guardian?.stop();
-                        });
-
-                        socket.on('guardian_test_ai', () => {
-                            if (this.guardian) {
-                                this.guardian.testAI().then(result => {
-                                    this.sendGuardianEvent('guardian_test_ai_result', result);
-                                }).catch((err: Error) => {
-                                    this.sendGuardianEvent('guardian_test_ai_result', {
-                                        success: false,
-                                        message: `AI 测试内部错误: ${err.message}`
-                                    });
-                                });
-                            } else {
-                                this.sendGuardianEvent('guardian_test_ai_result', {
-                                    success: false,
-                                    message: 'Guardian 模块未初始化，请检查配置后重试'
-                                });
-                            }
-                        });
-
-                        socket.on('guardian_approve', (data: any) => {
-                            this.guardian?.approveActions(data?.actionIds || []);
-                        });
-
-                        socket.on('guardian_reject', (data: any) => {
-                            this.guardian?.rejectActions(data?.actionIds || []);
-                        });
-
-                        socket.on('guardian_rollback', () => {
-                            this.guardian?.rollbackLastFix();
-                        });
-
-                        socket.on('guardian_restart', () => {
-                            this.guardian?.confirmRestart();
-                        });
-
-                        socket.on('guardian_command', (data: any) => {
-                            this.guardian?.sendCommand(data?.command || '');
-                        });
-
-                        socket.on('guardian_get_ai_conversation', () => {
-                            if (this.guardian) {
-                                this.sendGuardianEvent('guardian_ai_conversation', this.guardian.getAIConversations());
-                            }
-                        });
-
-                        socket.on('guardian_reset_ai_conversation', () => {
-                            if (this.guardian) {
-                                this.guardian.resetAIConversations();
-                                this.sendGuardianEvent('guardian_ai_conversation', []);
-                            }
-                        });
-
-                        socket.on('guardian_update_config', (data: any) => {
-                            if (!this.guardian) return;
-                            this.guardian.updateConfig(data || {});
-                            if (data?.ai) {
-                                const current = Config.getConfig();
-                                current.guardian = {
-                                    ...current.guardian!,
-                                    ai: { ...current.guardian!.ai, ...data.ai }
-                                };
-                                Config.writeConfig(current);
-                                Config.clearCache();
-                            }
-                        });
-                    });
-                },
-                onDisable: async () => {
-                    if (this.guardian) {
-                        await this.guardian.stop();
-                    }
-                }
+    private setupGuardianRoutes(): void {
+        this.app.get('/guardian/status', (_req: any, res: any) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, enabled: false, message: 'Guardian 未初始化' });
             }
-        );
+            res.json({
+                status: 200,
+                enabled: true,
+                guardianStatus: this.guardian.getStatus(),
+                processInfo: this.guardian.getProcessInfo(),
+                checkpoints: this.guardian.getCheckpoints(),
+                reports: this.guardian.getReportsList()
+            });
+        });
+
+        this.app.get('/guardian/logs', (req: any, res: any) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, logs: [] });
+            }
+            const lines = parseInt(req.query.lines as string) || 100;
+            const buffer = this.guardian.getLogBuffer();
+            res.json({ status: 200, logs: buffer.slice(-lines) });
+        });
+
+        this.app.get('/guardian/reports', (_req: any, res: any) => {
+            if (!this.guardian) {
+                return res.json({ status: 200, reports: [] });
+            }
+            res.json({ status: 200, reports: this.guardian.getReportsList() });
+        });
     }
 
     private setupPluginRoutes(): void {
@@ -1476,7 +1432,6 @@ export class Core {
         this.server.listen(port, host, async () => {
             logger.info(`服务器正在运行于 http://${host}:${port}`);
             await this.pluginManager.initialize(this.io);
-            this.registerBuiltinGuardianPlugin();
             this.pluginManager.setupPluginRoutes(this.pluginRouter, this.app);
             this.pluginManager.setupPluginSocketHandlers(this.io);
             await this.javachecker();

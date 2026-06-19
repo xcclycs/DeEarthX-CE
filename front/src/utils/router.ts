@@ -43,8 +43,8 @@ const router = createRouter({
             component: () => import("../views/GuardianView.vue")
         },
         {
-            path: "/plugin-page/guardian/:pageKey",
-            redirect: "/guardian"
+            path: "/server",
+            component: () => import("../views/ServerView.vue")
         },
         {
             path: "/plugins",

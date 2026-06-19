@@ -32,13 +32,14 @@ switch (args[0]) {
         console.log(`成功复制: ${sourcePath} -> ${destPath}`);
         break;
     case "b2r": //build to root
-        const exePath = "./front/src-tauri/target/release/bundle/nsis/DeEarthX-V3_1.0.0_x64-setup.exe";
+        const innoDir = "./front/src-tauri/target/release/bundle/inno";
+        const exePath = "./front/src-tauri/target/release/bundle/inno/DeEarthX-V3-Setup-1.0.0.exe";
         const rootExePath = "./DeEarthX-V3_x64-setup.exe";
         const zipPath = "./DeEarthX-V3_x64-setup.zip";
 
         if (!fs.existsSync(exePath)) {
             console.error(`错误: 源文件不存在: ${exePath}`);
-            console.error("请先运行 'npm run tauri' 构建前端");
+            console.error("请先运行 Inno Setup 编译生成安装包");
             process.exit(1);
         }
 

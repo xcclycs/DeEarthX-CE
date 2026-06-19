@@ -35,13 +35,7 @@ export default defineConfig(async () => ({
       }
     },
     // 启用压缩
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true
-      }
-    },
+    minify: 'esbuild',
     // 启用 CSS 代码分割
     cssCodeSplit: true,
     // 生成源映射文件

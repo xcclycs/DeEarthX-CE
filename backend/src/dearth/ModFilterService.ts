@@ -65,29 +65,39 @@ export class ModFilterService {
     const useReplacement = this.extraStrategies.some(s => s.replacesBuiltin);
 
     if (!useReplacement) {
-      if (this.config.dexpub) {
-        logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
-        const dexpubStrategy = new DexpubFilter();
-        const dexpubMods = await dexpubStrategy.filter(files);
-        const serverModsListSet = new Set(await dexpubStrategy.getServerMods(files));
+      const dexpubEnabled = this.config.dexpub;
+      const mixinsEnabled = this.config.mixins;
 
-        dexpubMods.forEach(mod => processedFiles.add(mod));
-        serverModsListSet.forEach(mod => processedFiles.add(mod));
-        clientMods.push(...dexpubMods);
+      const [dexpubResult, mixinResult] = await Promise.all([
+        dexpubEnabled ? this.runDexpubFilter(files) : Promise.resolve(null),
+        mixinsEnabled ? this.runMixinFilter(files) : Promise.resolve(null),
+      ]);
+
+      let serverModsSet = new Set<string>();
+      if (dexpubResult) {
+        logger.info("Galaxy Square (dexpub) 检查完成", { 服务端模组: dexpubResult.serverMods, 客户端模组: dexpubResult.clientMods });
+        dexpubResult.clientMods.forEach(mod => processedFiles.add(mod));
+        serverModsSet = new Set(dexpubResult.serverMods);
+        serverModsSet.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...dexpubResult.clientMods);
 
         if (this.messageWS) {
           this.messageWS.filterModsProgress(processedFiles.size, files.length, "Galaxy Square (dexpub) 检查");
         }
       }
 
+      if (mixinResult) {
+        logger.info("Mixin 检查完成", { 客户端模组数: mixinResult.length });
+        mixinResult.forEach(mod => processedFiles.add(mod));
+        clientMods.push(...mixinResult);
+
+        if (this.messageWS) {
+          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Mixin 检查");
+        }
+      }
+
       if (this.config.modrinth) {
         logger.info("开始 Modrinth API 检查客户端模组");
-
-        let serverModsSet = new Set<string>();
-        if (this.config.dexpub) {
-          const dexpubStrategy = new DexpubFilter();
-          serverModsSet = new Set(await dexpubStrategy.getServerMods(files));
-        }
 
         const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
         const modrinthMods = await new ModrinthFilter().filter(unprocessedFiles);
@@ -97,20 +107,6 @@ export class ModFilterService {
 
         if (this.messageWS) {
           this.messageWS.filterModsProgress(processedFiles.size, files.length, "Modrinth API 检查");
-        }
-      }
-
-      if (this.config.mixins) {
-        logger.info("开始 Mixin 检查客户端模组");
-
-        const unprocessedFiles = files.filter(f => !processedFiles.has(f.filename));
-        const mixinMods = await new MixinFilter().filter(unprocessedFiles);
-
-        mixinMods.forEach(mod => processedFiles.add(mod));
-        clientMods.push(...mixinMods);
-
-        if (this.messageWS) {
-          this.messageWS.filterModsProgress(processedFiles.size, files.length, "Mixin 检查");
         }
       }
 
@@ -148,5 +144,18 @@ export class ModFilterService {
     }
 
     return uniqueMods;
+  }
+
+  private async runDexpubFilter(files: Array<{ filename: string; hash: string; mixins: any[]; infos: any[] }>): Promise<{ clientMods: string[]; serverMods: string[] }> {
+    logger.info("开始 Galaxy Square (dexpub) 检查客户端模组");
+    const dexpubStrategy = new DexpubFilter();
+    const clientMods = await dexpubStrategy.filter(files);
+    const serverMods = await dexpubStrategy.getServerMods(files);
+    return { clientMods, serverMods };
+  }
+
+  private async runMixinFilter(files: Array<{ filename: string; hash: string; mixins: any[]; infos: any[] }>): Promise<string[]> {
+    logger.info("开始 Mixin 检查客户端模组");
+    return new MixinFilter().filter(files);
   }
 }

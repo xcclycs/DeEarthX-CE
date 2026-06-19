@@ -5,6 +5,8 @@ import { IFilterStrategy, IFileInfo, IDexpubCheckResult } from "../types.js";
 export class DexpubFilter implements IFilterStrategy {
   name = "DexpubFilter";
   private got: Got;
+  private cachedResult: IDexpubCheckResult | null = null;
+  private cachedFiles: IFileInfo[] | null = null;
 
   constructor() {
     this.got = got.extend({
@@ -17,9 +19,18 @@ export class DexpubFilter implements IFilterStrategy {
   }
 
   async filter(files: IFileInfo[]): Promise<string[]> {
-    const result = await this.checkDexpubForClientMods(files);
-    logger.info("Galaxy Square 检查完成", { 服务端模组: result.serverMods, 客户端模组: result.clientMods });
+    const result = await this.getCachedCheckResult(files);
     return result.clientMods;
+  }
+
+  private async getCachedCheckResult(files: IFileInfo[]): Promise<IDexpubCheckResult> {
+    if (this.cachedResult && this.cachedFiles === files) {
+      return this.cachedResult;
+    }
+    this.cachedFiles = files;
+    this.cachedResult = await this.checkDexpubForClientMods(files);
+    logger.info("Galaxy Square 检查完成", { 服务端模组: this.cachedResult.serverMods, 客户端模组: this.cachedResult.clientMods });
+    return this.cachedResult;
   }
 
   private async checkDexpubForClientMods(files: IFileInfo[]): Promise<IDexpubCheckResult> {

@@ -67,6 +67,7 @@ const actionResults = ref<Array<{
 }>>([]);
 
 const restartNeeded = ref(false);
+const stopRequested = ref(false);
 
 const stats = ref({
   crashCount: 0,
@@ -171,7 +172,9 @@ function connectSocketIO() {
 function handleGuardianMessage(data: any) {
   switch (data.type) {
     case 'guardian_status':
-      guardianStatus.value = data.data?.status || 'idle';
+      if (!stopRequested.value) {
+        guardianStatus.value = data.data?.status || 'idle';
+      }
       if (data.data?.data?.crashCount !== undefined) {
         stats.value.crashCount = data.data.data.crashCount;
       }
@@ -182,6 +185,9 @@ function handleGuardianMessage(data: any) {
         restartNeeded.value = false;
       }
       restartNeeded.value = data.data?.data?.restartNeeded === true;
+      if (data.data?.status === 'stopped' || data.data?.status === 'idle') {
+        stopRequested.value = false;
+      }
       break;
 
     case 'guardian_log':
@@ -283,10 +289,15 @@ async function fetchGuardianStatus() {
     const response = await fetch(`${getApiHost()}/guardian/status`);
     const data = await response.json();
     if (data.enabled) {
-      guardianStatus.value = data.guardianStatus || 'idle';
+      if (!stopRequested.value) {
+        guardianStatus.value = data.guardianStatus || 'idle';
+      }
       processRunning.value = data.processInfo?.status === 'running';
       stats.value.reportsCount = data.reports?.length || 0;
       reports.value = data.reports || [];
+      if (data.guardianStatus === 'stopped' || data.guardianStatus === 'idle') {
+        stopRequested.value = false;
+      }
     }
   } catch { /* ignore */ }
 }
@@ -361,6 +372,7 @@ function stopGuardian() {
     cancelText: t('guardian.stop_cancel'),
     okType: 'danger',
     onOk: () => {
+      stopRequested.value = true;
       sendGuardianMessage('guardian_stop');
       message.info(t('guardian.stop_success'));
       guardianStatus.value = 'stopped';

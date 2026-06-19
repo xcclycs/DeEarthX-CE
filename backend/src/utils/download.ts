@@ -130,6 +130,8 @@ async function simpleDownload(url: string, filePath: string): Promise<void> {
     responseType: "buffer",
     headers: { "user-agent": "DeEarthX" },
     followRedirect: true,
+    http2: true,
+    dnsCache: true,
   });
   fse.outputFileSync(filePath, res.rawBody);
 }
@@ -148,12 +150,12 @@ async function chunkedDownload(
   url: string,
   filePath: string,
   chunkSize = 5 * 1024 * 1024,
-  concurrency = 4,
+  concurrency = 8,
 ): Promise<void> {
   const useMCIMirror = isMCIMirrorUrl(url);
   if (useMCIMirror) {
-    chunkSize = 512 * 1024;
-    concurrency = 16;
+    chunkSize = 256 * 1024;
+    concurrency = 32;
   }
 
   const chunkLabel = chunkSize >= 1024 * 1024
@@ -169,6 +171,8 @@ async function chunkedDownload(
       headers: { "user-agent": "DeEarthX" },
       followRedirect: true,
       timeout: { request: 30000 },
+      http2: true,
+      dnsCache: true,
     });
     fileSize = parseInt(head.headers['content-length'] || '0', 10);
     if (useMCIMirror) {
@@ -211,6 +215,8 @@ async function chunkedDownload(
           },
           followRedirect: true,
           timeout: { request: 60000 },
+          http2: true,
+          dnsCache: true,
         });
 
         if (res.statusCode === 206) {
@@ -343,7 +349,7 @@ export async function fastdownload(data: [string, string] | string[][], enableHa
         throw error;
       }
     },
-    { concurrency: 16 },
+    { concurrency: 32 },
   );
 }
 
@@ -373,6 +379,6 @@ export async function Wfastdownload(
         throw error;
       }
     },
-    { concurrency: 24 },
+    { concurrency: 48 },
   );
 }

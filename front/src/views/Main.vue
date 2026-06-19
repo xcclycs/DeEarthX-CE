@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { inject, ref, onMounted, computed, onUnmounted } from 'vue';
+import { inject, ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { InboxOutlined } from '@ant-design/icons-vue';
 import { message, notification, StepsProps } from 'ant-design-vue';
 import type { UploadFile, UploadChangeParam } from 'ant-design-vue';
@@ -84,8 +84,41 @@ function handleFileDrop(e: DragEvent) {
 }
 
 // 初始化
+const introPanelIndex = ref(0); // 0=软件介绍, 1=软件TIP
+const showComplete = ref(false);
+let introRotationTimer: ReturnType<typeof setInterval> | null = null;
+
+function startIntroRotation() {
+    stopIntroRotation();
+    introRotationTimer = setInterval(() => {
+        introPanelIndex.value = introPanelIndex.value === 0 ? 1 : 0;
+    }, 5000);
+}
+
+function stopIntroRotation() {
+    if (introRotationTimer !== null) {
+        clearInterval(introRotationTimer);
+        introRotationTimer = null;
+    }
+}
+
 onMounted(() => {
-    // stepItems 和 modeOptions 都是 computed，会自动初始化
+    if (progressState.isMaking) {
+        startIntroRotation();
+    }
+});
+
+watch(() => progressState.isMaking, (val) => {
+    if (val) {
+        startIntroRotation();
+    } else {
+        stopIntroRotation();
+        introPanelIndex.value = 0;
+    }
+});
+
+onUnmounted(() => {
+    stopIntroRotation();
 });
 
 // 重置所有状态
@@ -94,6 +127,7 @@ function resetState() {
     uploadDisabled.value = false;
     startButtonDisabled.value = false;
     selectedFileName.value = '';
+    showComplete.value = false;
     resetProgressState();
     const killCoreProcess = inject("killCoreProcess");
     if (killCoreProcess && typeof killCoreProcess === 'function') {
@@ -396,11 +430,12 @@ function handleFinish(result: number) {
     const timeSpent = Math.round(result / 1000);
     progressState.currentStep++;
     progressState.isMaking = false;
+    showComplete.value = true;
     message.success(t('home.production_complete', { time: timeSpent }));
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
 
-    // 8秒后自动重置状态
-    setTimeout(resetState, 8000);
+    // 5秒后自动重置状态
+    setTimeout(resetState, 5000);
 }
 
 // 处理服务端安装开始
@@ -451,6 +486,8 @@ function handleServerInstallComplete(result: any) {
     serverInstallProgress.display = true;
     
     progressState.currentStep++;
+    progressState.isMaking = false;
+    showComplete.value = true;
     
     const timeSpent = Math.round(result.duration / 1000);
     message.success(t('home.server_install_completed') + ` ${t('home.server_install_duration')}: ${timeSpent}s`);
@@ -459,6 +496,8 @@ function handleServerInstallComplete(result: any) {
     setTimeout(() => {
         serverInstallProgress.display = false;
     }, 8000);
+    
+    setTimeout(resetState, 5000);
 }
 
 // 处理服务端安装错误
@@ -688,7 +727,73 @@ onUnmounted(() => {
 <template>
     <div class="tw:h-full tw:w-full tw:relative tw:flex tw:flex-col">
         <div class="tw:flex-1 tw:w-full tw:flex tw:flex-col tw:justify-center tw:items-center tw:p-4">
-            <div class="tw:w-full tw:max-w-2xl tw:flex tw:flex-col tw:items-center">
+            <!-- 制作中：显示软件介绍和TIP（循环轮播） -->
+            <div v-if="progressState.isMaking" class="tw:w-full tw:max-w-2xl tw:flex tw:flex-col tw:items-center tw:pb-24 tw:pr-72">
+                <!-- 完成提示 -->
+                <div v-if="showComplete" class="tw:w-full tw:bg-white tw:rounded-xl tw:shadow-md tw:p-8 tw:text-center tw:animate-pulse">
+                    <div class="tw:text-4xl tw:mb-3">🎉</div>
+                    <h2 class="tw:text-2xl tw:font-bold tw:text-green-600 tw:mb-2">{{ t('home.complete_title') }}</h2>
+                    <p class="tw:text-sm tw:text-gray-500">{{ t('home.complete_auto_reset') }}</p>
+                </div>
+                <template v-else>
+                <transition name="fade" mode="out-in">
+                    <div v-if="introPanelIndex === 0" key="intro" class="tw:w-full tw:bg-white tw:rounded-xl tw:shadow-md tw:p-6">
+                        <h2 class="tw:text-lg tw:font-bold tw:text-gray-800 tw:mb-3 tw:flex tw:items-center tw:gap-2">
+                            <span class="tw:text-blue-500">📖</span> {{ t('home.software_intro_title') }}
+                        </h2>
+                        <p class="tw:text-sm tw:text-gray-600 tw:mb-4 tw:leading-relaxed">{{ t('home.software_intro_desc') }}</p>
+                        <div class="tw:grid tw:grid-cols-2 tw:gap-3">
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:p-2 tw:bg-blue-50 tw:rounded-lg">
+                                <span class="tw:text-blue-500 tw:text-sm tw:mt-0.5 tw:shrink-0">🔍</span>
+                                <span class="tw:text-xs tw:text-gray-700 tw:leading-relaxed">{{ t('home.software_intro_feature1') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:p-2 tw:bg-green-50 tw:rounded-lg">
+                                <span class="tw:text-green-500 tw:text-sm tw:mt-0.5 tw:shrink-0">⚙️</span>
+                                <span class="tw:text-xs tw:text-gray-700 tw:leading-relaxed">{{ t('home.software_intro_feature2') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:p-2 tw:bg-purple-50 tw:rounded-lg">
+                                <span class="tw:text-purple-500 tw:text-sm tw:mt-0.5 tw:shrink-0">📦</span>
+                                <span class="tw:text-xs tw:text-gray-700 tw:leading-relaxed">{{ t('home.software_intro_feature3') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:p-2 tw:bg-orange-50 tw:rounded-lg">
+                                <span class="tw:text-orange-500 tw:text-sm tw:mt-0.5 tw:shrink-0">🤖</span>
+                                <span class="tw:text-xs tw:text-gray-700 tw:leading-relaxed">{{ t('home.software_intro_feature4') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else key="tips" class="tw:w-full tw:bg-white tw:rounded-xl tw:shadow-md tw:p-6">
+                        <h2 class="tw:text-lg tw:font-bold tw:text-gray-800 tw:mb-3 tw:flex tw:items-center tw:gap-2">
+                            <span class="tw:text-yellow-500">💡</span> {{ t('home.software_tip_title') }}
+                        </h2>
+                        <div class="tw:flex tw:flex-col tw:gap-2">
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:text-xs tw:text-gray-600 tw:leading-relaxed">
+                                <span class="tw:text-yellow-500 tw:shrink-0 tw:mt-0.5">1.</span>
+                                <span>{{ t('home.software_tip1') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:text-xs tw:text-gray-600 tw:leading-relaxed">
+                                <span class="tw:text-yellow-500 tw:shrink-0 tw:mt-0.5">2.</span>
+                                <span>{{ t('home.software_tip2') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:text-xs tw:text-gray-600 tw:leading-relaxed">
+                                <span class="tw:text-yellow-500 tw:shrink-0 tw:mt-0.5">3.</span>
+                                <span>{{ t('home.software_tip3') }}</span>
+                            </div>
+                            <div class="tw:flex tw:items-start tw:gap-2 tw:text-xs tw:text-gray-600 tw:leading-relaxed">
+                                <span class="tw:text-yellow-500 tw:shrink-0 tw:mt-0.5">4.</span>
+                                <span>{{ t('home.software_tip4') }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+                <!-- 轮播指示器 -->
+                <div class="tw:flex tw:gap-2 tw:mt-4">
+                    <span :class="['tw:w-2 tw:h-2 tw:rounded-full tw:transition-colors', introPanelIndex === 0 ? 'tw:bg-blue-500' : 'tw:bg-gray-300']"></span>
+                    <span :class="['tw:w-2 tw:h-2 tw:rounded-full tw:transition-colors', introPanelIndex === 1 ? 'tw:bg-yellow-500' : 'tw:bg-gray-300']"></span>
+                </div>
+                </template>
+            </div>
+            <!-- 未制作：显示上传区域 -->
+            <div v-else class="tw:w-full tw:max-w-2xl tw:flex tw:flex-col tw:items-center">
                 <div>
                     <h1 class="tw:text-4xl tw:text-center tw:animate-pulse">{{ t('common.app_name') }}</h1>
                     <h1 class="tw:text-sm tw:text-gray-500 tw:text-center">{{ t('home.title') }}</h1>
@@ -857,3 +962,14 @@ onUnmounted(() => {
     </div>
 
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

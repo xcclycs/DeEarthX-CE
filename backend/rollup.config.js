@@ -1,8 +1,7 @@
-import typescript from '@rollup/plugin-typescript'
+import esbuild from 'rollup-plugin-esbuild'
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs'
 import json from '@rollup/plugin-json';
-import terser from '@rollup/plugin-terser';
 
 export default {
 	input: 'src/main.ts',
@@ -13,12 +12,15 @@ export default {
 		sourcemap: false
 	},
 	plugins: [
-		typescript({
+		esbuild({
+			target: 'node16',
+			platform: 'node',
+			sourceMap: false,
+			minify: true,
+			minifyWhitespace: true,
+			minifyIdentifiers: true,
+			minifySyntax: true,
 			tsconfig: './tsconfig.json',
-			module: 'Node16',
-			compilerOptions: {
-				module: 'Node16'
-			}
 		}),
 		resolve({
 			preferBuiltins: true,
@@ -31,10 +33,6 @@ export default {
 			ignoreDynamicRequires: true
 		}),
 		json(),
-		terser({
-			compress: true,
-			mangle: false
-		})
 	],
 	onwarn: (warning, warn) => {
 		if (warning.code === 'CIRCULAR_DEPENDENCY') return;

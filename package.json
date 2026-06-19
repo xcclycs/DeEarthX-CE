@@ -14,11 +14,15 @@
     "backend": "cd ./backend && pnpm run build",
     "upx": ".\\.build\\upx.exe .\\backend\\dist\\core.exe",
     "tauri": "cd ./front && pnpm run tauri build",
+    "inno": "cd ./front && node scripts/build-installer.cjs",
     "back2front": "node b2f.js b2f",
     "build2root": "node b2f.js b2r",
-    "build": "pnpm run backend && pnpm run upx && pnpm run back2front && pnpm run tauri && pnpm run build2root"
+    "build": "pnpm run backend && pnpm run upx && pnpm run back2front && pnpm run tauri && pnpm run inno && pnpm run build2root"
   },
   "devDependencies": {
     "archiver": "^7.0.1"
+  },
+  "dependencies": {
+    "fancy-installer": "^0.1.0"
   }
 }

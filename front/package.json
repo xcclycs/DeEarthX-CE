@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
     "build:with-error-handling": "node build-with-error-handling.js",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri-dev": "tauri dev --no-watch",
-    "tauri-build": "tauri build"
+    "tauri-build": "tauri build",
+    "build:installer": "node scripts/build-installer.js",
+    "build:release": "npm run tauri-build && npm run build:installer"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",
@@ -26,7 +29,6 @@
     "router": "^2.2.0",
     "socket.io-client": "^4.8.1",
     "tailwindcss": "^4.2.1",
-    "terser": "^5.46.1",
     "vue": "^3.5.29",
     "vue-i18n": "^11.2.8",
     "vue-router": "^4.6.4"
