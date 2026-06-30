@@ -429,12 +429,10 @@ function _flushDownloadProgress() {
 function handleFinish(result: number) {
     const timeSpent = Math.round(result / 1000);
     progressState.currentStep++;
-    progressState.isMaking = false;
     showComplete.value = true;
     message.success(t('home.production_complete', { time: timeSpent }));
     sendNotification({ title: t('common.app_name'), body: t('home.production_complete', { time: timeSpent }) });
 
-    // 5秒后自动重置状态
     setTimeout(resetState, 5000);
 }
 
@@ -486,7 +484,6 @@ function handleServerInstallComplete(result: any) {
     serverInstallProgress.display = true;
     
     progressState.currentStep++;
-    progressState.isMaking = false;
     showComplete.value = true;
     
     const timeSpent = Math.round(result.duration / 1000);
@@ -497,7 +494,15 @@ function handleServerInstallComplete(result: any) {
         serverInstallProgress.display = false;
     }, 8000);
     
-    setTimeout(resetState, 5000);
+    setTimeout(() => {
+        progressState.isMaking = false;
+        showComplete.value = false;
+        uploadedFiles.value = [];
+        uploadDisabled.value = false;
+        startButtonDisabled.value = false;
+        selectedFileName.value = '';
+        resetProgressState();
+    }, 15000);
 }
 
 // 处理服务端安装错误
@@ -581,9 +586,11 @@ function registerSocketListeners(sock: Socket) {
     unregisterSocketListeners(sock);
 
     socketHandlers['connect'] = () => {
+        console.log('[DEBUG] connect 事件触发');
         message.success(t('home.ws_connected'));
     };
     socketHandlers['error'] = (data: any) => {
+        console.log('[DEBUG] error 事件触发:', data);
         try {
             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
             handleError(parsed.message);
@@ -641,6 +648,7 @@ function registerSocketListeners(sock: Socket) {
         handleFilterModsError(data);
     };
     socketHandlers['connect_error'] = () => {
+        console.log('[DEBUG] connect_error 事件触发, 调用 resetState');
         notification.error({
             message: t('home.ws_error_title'),
             description: `${t('home.ws_error_desc')}\n\n${t('home.suggestions')}:\n1. ${t('home.suggestion_check_backend')}\n2. ${t('home.suggestion_check_port')}\n3. ${t('home.suggestion_restart_application')}`,
@@ -695,14 +703,18 @@ function handleStartProcess() {
         // 覆盖 connect 处理器以在连接后开始制作
         socket.off('connect', socketHandlers['connect']);
         socket.on('connect', () => {
+            console.log('[DEBUG] inline connect 事件触发, 调用 runDeEarthX');
             message.success(t('home.ws_connected'));
             runDeEarthX(file);
         });
     }
 
-    socket.on('disconnect', () => {
-        console.log('Socket.IO 连接关闭');
+    socket.on('disconnect', (reason) => {
+        console.log('[DEBUG] Socket.IO 连接关闭, reason:', reason, ', connected:', socket?.connected);
     });
+    console.log('[DEBUG] 注册 disconnect 事件完成');
+    // 立即检查 socket 状态
+    console.log('[DEBUG] handleStartProcess: socket.connected=', socket.connected, ', socket.id=', socket.id, ', socket.active=', (socket as any).subs ? true : false);
 }
 
 // 组件挂载时恢复进度状态

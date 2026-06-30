@@ -106,12 +106,13 @@ export function getProgressSocket(): Socket {
 
     socket = io(`http://${host}:${port}`, {
         path: '/socket.io',
-        transports: ['polling', 'websocket'],
+        transports: ['websocket'],
         reconnection: true,
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         timeout: 20000,
         autoConnect: true,
+        forceNew: true,
     });
 
     socket.on('connect', () => {
@@ -131,9 +132,13 @@ export function getProgressSocket(): Socket {
 
 export function disconnectProgressSocket(): void {
     if (socket) {
+        console.log('[DEBUG] disconnectProgressSocket: 调用 socket.disconnect()');
         socket.removeAllListeners();
         socket.disconnect();
         socket = null;
+        console.log('[DEBUG] disconnectProgressSocket: socket 已置为 null');
+    } else {
+        console.log('[DEBUG] disconnectProgressSocket: socket 已经是 null');
     }
 }
 

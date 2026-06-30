@@ -44,6 +44,14 @@
       "icons/icon.ico"
     ],
     "externalBin": ["binaries/core"],
+    "resources": [
+      "binaries/*.dll",
+      "binaries/*.pdb",
+      "binaries/*.deps.json",
+      "binaries/*.runtimeconfig.json",
+      "binaries/appsettings.json",
+      "binaries/web.config"
+    ],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"

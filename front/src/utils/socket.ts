@@ -20,7 +20,7 @@ export function getSocketIO(options: SocketIOOptions = {}): Socket {
   const host = options.host || import.meta.env.VITE_API_HOST || 'localhost';
   const port = options.port || import.meta.env.VITE_API_PORT || 37019;
   const path = options.path || '/socket.io';
-  const transports = options.transports || ['polling', 'websocket'];
+  const transports = options.transports || ['websocket'];
   const reconnection = options.reconnection !== undefined ? options.reconnection : true;
   const reconnectionAttempts = options.reconnectionAttempts || 5;
   const reconnectionDelay = options.reconnectionDelay || 1000;
@@ -33,6 +33,7 @@ export function getSocketIO(options: SocketIOOptions = {}): Socket {
     reconnectionDelay,
     timeout: 20000,
     autoConnect: true,
+    forceNew: true,
   });
 
   socket.on('connect', () => {
@@ -52,6 +53,7 @@ export function getSocketIO(options: SocketIOOptions = {}): Socket {
 
 export function disconnectSocket(): void {
   if (socket) {
+    console.log('[DEBUG] socket.ts disconnectSocket: 调用 socket.disconnect()');
     socket.disconnect();
     socket = null;
   }

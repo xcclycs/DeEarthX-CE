@@ -138,6 +138,12 @@ ko.UninstallAppFullTitle={#AppName} 제거
 [Files]
 Source: "..\target\release\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\target\release\{#AppBinName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\*.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\*.pdb"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\*.deps.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\*.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\appsettings.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\target\release\web.config"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 ; ── 快捷方式 ──────────────────────────────────────────────
 [Icons]

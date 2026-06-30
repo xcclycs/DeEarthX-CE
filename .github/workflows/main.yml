@@ -12,10 +12,15 @@ jobs:
   check:
     name: Code Check
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -31,11 +36,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Type check backend
-        run: |
-          cd backend
-          pnpm exec tsc --noEmit
-
       - name: Type check frontend
         run: |
           cd front
@@ -46,12 +46,17 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -73,6 +78,9 @@ jobs:
       - name: Build backend
         run: pnpm run backend
 
+      - name: Rename backend exe
+        run: pnpm run rename-backend
+
       - name: Compress with UPX
         run: pnpm run upx
 
@@ -81,6 +89,12 @@ jobs:
 
       - name: Build frontend
         run: pnpm run tauri
+
+      - name: Copy backend to target
+        run: pnpm run back2target
+
+      - name: Build installer
+        run: pnpm run inno
 
       - name: Move build to root
         run: pnpm run build2root
