@@ -11,7 +11,9 @@ public sealed record ModIdResult(string FileName, string? ModId, string? Error);
 
 public sealed class GalaxyService
 {
-    public const string GalaxyApiBase = "https://galaxy.tianpao.top";
+    private const string DefaultApiBase = "https://galaxy.xcclyc.com.cn";
+    private const string EnvApiBase = "GALAXY_API_BASE";
+    private const string EnvApiKey = "GALAXY_API_KEY";
 
     private const string ForgeDescriptor = "META-INF/mods.toml";
     private const string NeoForgeDescriptor = "META-INF/neoforge.mods.toml";
@@ -27,16 +29,34 @@ public sealed class GalaxyService
     private readonly IDeEarthXHttpService _httpService;
     private readonly ILogService _logService;
 
+    public string ApiBase { get; }
+    public string? ApiKey { get; }
+
     public GalaxyService(
         IZipService zipService,
         ITomlService tomlService,
         IDeEarthXHttpService httpService,
-        ILogService logService)
+        ILogService logService,
+        string? configApiBase = null,
+        string? configApiKey = null)
     {
         _zipService = zipService;
         _tomlService = tomlService;
         _httpService = httpService;
         _logService = logService;
+
+        // 优先级：环境变量 > appsettings.json 配置 > 默认值
+        ApiBase = Environment.GetEnvironmentVariable(EnvApiBase) ?? configApiBase ?? DefaultApiBase;
+        ApiKey = Environment.GetEnvironmentVariable(EnvApiKey) ?? configApiKey;
+
+        if (!string.IsNullOrEmpty(ApiKey))
+        {
+            _logService.Info($"Galaxy API 已配置: {ApiBase}（使用 API Key 认证）");
+        }
+        else
+        {
+            _logService.Info($"Galaxy API 已配置: {ApiBase}（无 API Key）");
+        }
     }
 
     public async Task<List<ModIdResult>> ParseModIdsAsync(
@@ -75,12 +95,24 @@ public sealed class GalaxyService
             throw new ArgumentException("未提供 modid", nameof(modid));
         }
 
-        var url = $"{GalaxyApiBase}/api/mod/submit/{type}";
+        var url = $"{ApiBase}/api/mod/submit/{type}";
+        _logService.Info($"正在提交 {type} 端模组 ID 到 {url}", new { modid });
         try
         {
-            var result = await _httpService
-                .PostJsonAsync<object?>(url, new { modid }, ct)
-                .ConfigureAwait(false);
+            object? result;
+            if (!string.IsNullOrEmpty(ApiKey))
+            {
+                result = await _httpService
+                    .PostJsonWithAuthAsync<object?>(url, new { modid }, "Bearer", ApiKey!, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                result = await _httpService
+                    .PostJsonAsync<object?>(url, new { modid }, ct)
+                    .ConfigureAwait(false);
+            }
+
             _logService.Info($"已成功提交 {type} 端模组 ID", new { modid, result });
             return result;
         }

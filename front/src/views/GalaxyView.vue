@@ -4,7 +4,7 @@
             <div class="tw:text-center tw:mb-8">
                 <h1 class="tw:text-2xl tw:font-bold tw:tracking-tight">
                     <span
-                        class="tw:bg-gradient-to-r tw:from-cyan-300 tw:to-purple-950 tw:bg-clip-text tw:text-transparent">
+                        >
                         {{ t('galaxy.title') }}
                     </span>
                 </h1>

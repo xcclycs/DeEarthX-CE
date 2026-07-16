@@ -249,6 +249,11 @@ cd backend-net && dotnet run --project src/DeEarthX.Web
 
 ```bash
 # 完整构建（后端 → UPX → Tauri → Inno Setup → 安装包）
+
+./build
+
+# 或
+
 pnpm run build
 ```
 
@@ -298,6 +303,6 @@ pnpm run build
 
 <div align="center">
 
-**DeEarthX V3** — [xcclycs](https://github.com/xcclycs) X [Tiaopao](https://github.com/Tianpao) 出品
+**DeEarthX-CE** — [xcclycs](https://github.com/xcclycs) X [Tiaopao](https://github.com/Tianpao) 出品
 
 </div>

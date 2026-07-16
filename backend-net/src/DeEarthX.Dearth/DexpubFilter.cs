@@ -6,7 +6,7 @@ namespace DeEarthX.Dearth;
 
 public sealed class DexpubFilter : IBatchFilterStrategy
 {
-    private const string CheckUrl = "https://galaxy.tianpao.top/api/mod/check";
+    private const string CheckUrl = "https://galaxy.xcclyc.com.cn/api/mod/check";
 
     private readonly IDeEarthXHttpService _http;
     private readonly ILogService _log;

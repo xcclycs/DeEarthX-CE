@@ -144,7 +144,7 @@ onMounted(() => {
                             class="tw:text-xs tw:mt-3 tw:px-3 tw:py-1 tw:rounded-full tw:bg-gradient-to-r tw:from-pink-100 tw:to-pink-200 tw:text-pink-600 tw:hover:tw:from-pink-200 tw:hover:tw:to-pink-300 tw:transition-all"
                             @click="openBilibili(item.bilibiliUrl)"
                         >
-                            B站
+                            BiliBili
                         </a-button>
                     </div>
                 </div>

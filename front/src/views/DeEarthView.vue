@@ -100,10 +100,7 @@ async function handleCheck() {
                     @click="selectFolder"
                     class="tw:mb-4"
                 >
-                    <template #icon>
-                        <FolderOpenOutlined />
-                    </template>
-                    选择 mods 文件夹
+                    <FolderOpenOutlined /> 选择 mods 文件夹
                 </a-button>
                 <div v-if="selectedFolder" class="tw:mb-4 tw:p-3 tw:bg-gray-50 tw:rounded tw:text-sm tw:text-gray-600">
                     <span class="tw:font-medium">已选择:</span> {{ selectedFolder }}

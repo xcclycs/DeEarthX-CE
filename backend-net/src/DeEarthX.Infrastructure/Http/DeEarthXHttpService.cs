@@ -16,6 +16,8 @@ public interface IDeEarthXHttpService
     Task<HttpResponseMessage> GetAsync(string url, CancellationToken ct = default);
 
     Task<T> PostJsonAsync<T>(string url, object body, CancellationToken ct = default);
+
+    Task<T> PostJsonWithAuthAsync<T>(string url, object body, string scheme, string token, CancellationToken ct = default);
 }
 
 public sealed class DeEarthXHttpService : IDeEarthXHttpService
@@ -67,6 +69,18 @@ public sealed class DeEarthXHttpService : IDeEarthXHttpService
         using var content = new StringContent(JsonSerializer.Serialize(body, DeEarthXJsonOptions.Default), Encoding.UTF8);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         using var response = await _httpClient.PostAsync(url, content, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        return (await JsonSerializer.DeserializeAsync<T>(stream, DeEarthXJsonOptions.Default, ct).ConfigureAwait(false))!;
+    }
+
+    public async Task<T> PostJsonWithAuthAsync<T>(string url, object body, string scheme, string token, CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue(scheme, token);
+        request.Content = new StringContent(JsonSerializer.Serialize(body, DeEarthXJsonOptions.Default), Encoding.UTF8);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
         return (await JsonSerializer.DeserializeAsync<T>(stream, DeEarthXJsonOptions.Default, ct).ConfigureAwait(false))!;
