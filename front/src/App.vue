@@ -181,7 +181,7 @@ function startHealthCheck() {
             message.warning(t('message.backend_health_check_failed_restart'));
             runCoreProcess();
         }
-    }, 10000);
+    }, 30000);
 }
 
 function stopHealthCheck() {
@@ -191,11 +191,24 @@ function stopHealthCheck() {
     }
 }
 
+function handleVisibilityChange() {
+    if (document.hidden) {
+        stopHealthCheck();
+        stopAdRotation();
+    } else {
+        startHealthCheck();
+        if (sponsors.value.length > 1) {
+            startAdRotation();
+        }
+    }
+}
+
 // 组件挂载时启动后端
 onMounted(async () => {
     loadVersion();
     runCoreProcess();
     startHealthCheck();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     setTimeout(() => {
         fetchPluginSidebarItems();
         loadPluginInjections();
@@ -245,7 +258,7 @@ function startAdRotation() {
     if (sponsors.value.length > 1) {
         adRotationTimer = setInterval(() => {
             currentAdIndex.value = (currentAdIndex.value + 1) % sponsors.value.length;
-        }, 5000);
+        }, 10000);
     }
 }
 
@@ -304,6 +317,7 @@ provide("killCoreProcess", () => {
 onUnmounted(() => {
     stopHealthCheck();
     stopAdRotation();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 // 导航菜单配置
@@ -391,7 +405,6 @@ router.beforeEach((to, _from, next) => {
         '/deearth': 'deearth',
         '/template': 'template',
         '/download': 'download',
-        '/guardian': 'guardian',
         '/server': 'server',
         '/plugins': 'plugin-manager',
         '/plugin': 'plugin-manager'
@@ -456,12 +469,6 @@ const menuItems = computed<MenuProps['items']>(() => {
             title: t('menu.download'),
         },
         {
-            key: 'guardian',
-            icon: h(WindowsOutlined),
-            label: t('menu.guardian'),
-            title: t('menu.guardian'),
-        },
-        {
             key: 'server',
             icon: h(CloudServerOutlined),
             label: t('menu.server'),
@@ -513,7 +520,6 @@ const handleMenuClick: MenuProps['onClick'] = (e) => {
         galaxy: '/galaxy',
         template: '/template',
         download: '/download',
-        guardian: '/guardian',
         server: '/server',
         plugin: '/plugins',
         'plugin-manager': '/plugins'

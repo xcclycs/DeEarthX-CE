@@ -30,7 +30,9 @@ export default defineConfig(async () => ({
           // 将 Ant Design Vue 单独打包
           ant: ['ant-design-vue', '@ant-design/icons-vue'],
           // 将网络请求库单独打包
-          network: ['axios']
+          network: ['axios', 'socket.io-client'],
+          // Tauri API 单独打包
+          tauri: ['@tauri-apps/api', '@tauri-apps/plugin-shell', '@tauri-apps/plugin-notification', '@tauri-apps/plugin-dialog', '@tauri-apps/plugin-opener', '@tauri-apps/plugin-store'],
         }
       }
     },
@@ -39,12 +41,16 @@ export default defineConfig(async () => ({
     // 启用 CSS 代码分割
     cssCodeSplit: true,
     // 生成源映射文件
-    sourcemap: false
+    sourcemap: false,
+    // 资源内联阈值
+    assetsInlineLimit: 4096,
+    // 分块大小警告阈值
+    chunkSizeWarningLimit: 600,
   },
 
   // 缓存策略
   optimizeDeps: {
-    include: ['vue', 'vue-router', 'vue-i18n', 'ant-design-vue', '@ant-design/icons-vue', 'axios'],
+    include: ['vue', 'vue-router', 'vue-i18n', 'ant-design-vue', '@ant-design/icons-vue', 'axios', 'socket.io-client'],
     exclude: ['@tauri-apps/api']
   },
 

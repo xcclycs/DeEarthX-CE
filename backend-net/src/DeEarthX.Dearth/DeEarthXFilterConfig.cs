@@ -10,7 +10,6 @@ public sealed class DeEarthXFilterConfig : IFilterConfig
     public bool Mixins { get; }
     public bool Modrinth { get; }
     public bool? McmodFilter { get; }
-    public bool? AiFilter { get; }
 
     public DeEarthXFilterConfig(FilterConfig filter)
     {
@@ -19,7 +18,6 @@ public sealed class DeEarthXFilterConfig : IFilterConfig
         Mixins = filter.Mixins;
         Modrinth = filter.Modrinth;
         McmodFilter = filter.McmodFilter;
-        AiFilter = filter.AiFilter;
     }
 
     public DeEarthXFilterConfig(DeEarthXConfig config)

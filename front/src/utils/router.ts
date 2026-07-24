@@ -39,10 +39,6 @@ const router = createRouter({
             component: () => import("../views/DownloadView.vue")
         },
         {
-            path: "/guardian",
-            component: () => import("../views/GuardianView.vue")
-        },
-        {
             path: "/server",
             component: () => import("../views/ServerView.vue")
         },

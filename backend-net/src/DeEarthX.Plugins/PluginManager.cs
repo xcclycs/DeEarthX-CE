@@ -93,6 +93,11 @@ public sealed class PluginManager
 
     public async Task<LoadedPlugin> CreatePluginAsync(string name, string author, string url = "", CancellationToken ct = default)
     {
+        return await CreatePluginAsync(name, author, url, true, ct);
+    }
+
+    public async Task<LoadedPlugin> CreatePluginAsync(string name, string author, string url, bool withTemplate, CancellationToken ct = default)
+    {
         Directory.CreateDirectory(PluginsDir);
         var id = $"plugin-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Guid.NewGuid():N}".Substring(0, 24);
         var pluginDir = Path.Combine(PluginsDir, id);
@@ -105,12 +110,24 @@ public sealed class PluginManager
             Version = "1.0.0",
             Author = string.IsNullOrEmpty(author) ? "Unknown" : author,
             Homepage = url,
-            Main = "index.js"
+            Runtime = "none",
+            Sidebar = false,
+            Page = false,
+            Resources = new PluginResources
+            {
+                Files = new List<string>(),
+                Scripts = new List<string>()
+            }
         };
         await WriteManifestAsync(pluginDir, manifest, ct);
 
         var config = new PluginConfig { Id = id, Enabled = true };
         await SavePluginConfigAsync(id, config, ct);
+
+        if (withTemplate)
+        {
+            await GeneratePluginTemplateAsync(pluginDir, manifest, ct);
+        }
 
         var loaded = new LoadedPlugin
         {
@@ -122,6 +139,99 @@ public sealed class PluginManager
         WriteGlobalPluginConfigs();
         _logService.Info($"插件已创建: {name} ({id})");
         return loaded;
+    }
+
+    public async Task GeneratePluginTemplateAsync(string pluginDir, PluginManifest manifest, CancellationToken ct)
+    {
+        var frontendDir = Path.Combine(pluginDir, "frontend");
+        var assetsDir = Path.Combine(frontendDir, "assets");
+        var scriptsDir = Path.Combine(pluginDir, "scripts");
+        var hooksDir = Path.Combine(pluginDir, "hooks");
+
+        Directory.CreateDirectory(frontendDir);
+        Directory.CreateDirectory(assetsDir);
+        Directory.CreateDirectory(scriptsDir);
+        Directory.CreateDirectory(hooksDir);
+
+        await File.WriteAllTextAsync(Path.Combine(pluginDir, "README.md"),
+            $"# {manifest.Name}\n\n## 描述\n\n请输入插件描述。\n\n## 版本\n\n{manifest.Version}\n\n## 作者\n\n{manifest.Author}\n",
+            ct);
+
+        await File.WriteAllTextAsync(Path.Combine(frontendDir, "index.html"),
+            $"<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>{manifest.Name}</title>\n  <link rel=\"stylesheet\" href=\"assets/style.css\">\n</head>\n<body>\n  <div class=\"plugin-container\">\n    <h1>{manifest.Name}</h1>\n    <p>欢迎使用 {manifest.Name} 插件！</p>\n  </div>\n</body>\n</html>\n",
+            ct);
+
+        await File.WriteAllTextAsync(Path.Combine(assetsDir, "style.css"),
+            ".plugin-container {\n  padding: 24px;\n  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;\n}\n",
+            ct);
+
+        await File.WriteAllTextAsync(Path.Combine(scriptsDir, "main.js"),
+            "// 插件脚本入口\nconsole.log('Plugin loaded:', manifest.name);\n\n// 插件 API 示例\n// 可以通过 window.addEventListener('deearthx:event', handler) 监听事件\n// 可以通过 window.dispatchEvent(new CustomEvent('deearthx:action', { detail: ... })) 触发动作\n",
+            ct);
+
+        await File.WriteAllTextAsync(Path.Combine(hooksDir, "example.json"),
+            "{\n  \"onLoad\": \"main.js\",\n  \"onUnload\": \"\",\n  \"onConfigChange\": \"\"\n}\n",
+            ct);
+
+        _logService.Info($"插件模板已生成: {manifest.Name}");
+    }
+
+    public PluginValidationResult ValidatePlugin(string id)
+    {
+        if (_plugins.TryGetValue(id, out var p))
+        {
+            var validator = new PluginValidator();
+            var result = validator.Validate(p.Manifest);
+            if (result.IsValid)
+            {
+                result = validator.ValidateConfig(p.Manifest, p.Config);
+            }
+            return result;
+        }
+        return new PluginValidationResult
+        {
+            IsValid = false,
+            Errors = new List<string> { "插件不存在" }
+        };
+    }
+
+    public async Task<List<string>> ListPluginFilesAsync(string id, CancellationToken ct = default)
+    {
+        await EnsureLoadedAsync(ct);
+        var dir = Path.Combine(PluginsDir, id);
+        if (!Directory.Exists(dir))
+            throw new DirectoryNotFoundException($"插件目录不存在: {id}");
+
+        var files = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        {
+            files.Add(Path.GetRelativePath(dir, file).Replace('\\', '/'));
+        }
+        return files.OrderBy(f => f).ToList();
+    }
+
+    public async Task ReloadPluginAsync(string id, CancellationToken ct = default)
+    {
+        _plugins.TryRemove(id, out _);
+        var dir = Path.Combine(PluginsDir, id);
+        if (!Directory.Exists(dir))
+            throw new DirectoryNotFoundException($"插件目录不存在: {id}");
+
+        var manifestPath = Path.Combine(dir, ManifestFileName);
+        if (!File.Exists(manifestPath))
+            throw new FileNotFoundException("插件清单不存在");
+
+        var manifest = await ReadManifestAsync(manifestPath, ct);
+        manifest.Id = id;
+        var config = await ReadPluginConfigAsync(id, manifest, ct);
+
+        _plugins[id] = new LoadedPlugin
+        {
+            Manifest = manifest,
+            Config = config,
+            DirectoryPath = dir
+        };
+        _logService.Info($"插件已重新加载: {manifest.Name} ({id})");
     }
 
     public async Task<PluginInstallResult> InstallSmartAsync(byte[] buffer, CancellationToken ct = default)

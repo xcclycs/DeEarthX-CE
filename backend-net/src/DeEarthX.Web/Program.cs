@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DeEarthX.Core;
@@ -7,7 +7,6 @@ using DeEarthX.Core.Configuration;
 using DeEarthX.Dearth;
 using DeEarthX.Dex;
 using DeEarthX.Galaxy;
-using DeEarthX.Guardian;
 using DeEarthX.Infrastructure;
 using DeEarthX.Infrastructure.Crypto;
 using DeEarthX.Infrastructure.TextEncoding;
@@ -28,7 +27,6 @@ builder.Services.AddDeEarthXPlatform();
 builder.Services.AddDeEarthXModLoader();
 builder.Services.AddDeEarthXDearth();
 builder.Services.AddDeEarthXGalaxy();
-builder.Services.AddDeEarthXGuardian();
 builder.Services.AddDeEarthXPlugins();
 builder.Services.AddDeEarthXTemplates();
 builder.Services.AddDeEarthXDex();
@@ -69,10 +67,18 @@ app.Use(async (ctx, next) =>
     {
         await next();
     }
+    catch (OperationCanceledException)
+    {
+        if (!ctx.Response.HasStarted)
+        {
+            ctx.Response.StatusCode = 499;
+        }
+    }
     catch (Exception ex)
     {
         var logger = ctx.RequestServices.GetRequiredService<ILogService>();
         logger.Error("请求处理异常", ex);
+        if (ctx.Response.HasStarted) return;
         ctx.Response.StatusCode = 500;
         ctx.Response.ContentType = "application/json; charset=utf-8";
         var payload = new Dictionary<string, object?>
@@ -89,7 +95,6 @@ app.Use(async (ctx, next) =>
 });
 
 RegisterRoutes(app, jsonOpts);
-RegisterSocketIoHandlers(app);
 
 var configService = app.Services.GetRequiredService<IConfigService>();
 var config = configService.Get();
@@ -112,6 +117,7 @@ _ = Task.Run(async () =>
         startupLogger.Info($"Java 检查: exists={result.Exists}, version={result.Version?.FullVersion ?? "N/A"}, vendor={result.Version?.Vendor ?? "N/A"}");
         await messageService.Info($"Java 检查: exists={result.Exists}, version={result.Version?.FullVersion ?? "N/A"}, vendor={result.Version?.Vendor ?? "N/A"}");
     }
+    catch (OperationCanceledException) { }
     catch (Exception ex)
     {
         startupLogger.Error("启动 Java 检查失败", ex);
@@ -119,29 +125,6 @@ _ = Task.Run(async () =>
 });
 
 app.Run();
-
-static void RegisterSocketIoHandlers(WebApplication app)
-{
-    var server = app.Services.GetRequiredService<ISocketIOServer>();
-    var handlers = app.Services.GetService<IGuardianHubHandlers>();
-    if (handlers is null)
-    {
-        app.Services.GetRequiredService<ILogService>().Warn("IGuardianHubHandlers 未注册，guardian_* 事件将不会被处理");
-        return;
-    }
-
-    server.On("guardian_start", arg => handlers.StartAsync(arg!));
-    server.On("guardian_stop", _ => handlers.StopAsync());
-    server.On("guardian_test_ai", _ => handlers.TestAiAsync());
-    server.On("guardian_approve", arg => handlers.ApproveAsync(arg!));
-    server.On("guardian_reject", arg => handlers.RejectAsync(arg!));
-    server.On("guardian_rollback", _ => handlers.RollbackAsync());
-    server.On("guardian_restart", _ => handlers.RestartAsync());
-    server.On("guardian_command", arg => handlers.CommandAsync(arg!));
-    server.On("guardian_get_ai_conversation", _ => handlers.GetAiConversationAsync());
-    server.On("guardian_reset_ai_conversation", _ => handlers.ResetAiConversationAsync());
-    server.On("guardian_update_config", arg => handlers.UpdateConfigAsync(arg!));
-}
 
 static void RegisterRoutes(WebApplication app, JsonSerializerOptions jsonOpts)
 {
@@ -156,13 +139,17 @@ static void RegisterRoutes(WebApplication app, JsonSerializerOptions jsonOpts)
         ping = DateTime.UtcNow.ToString("o")
     }, jsonOpts));
 
-    app.MapGet("/version", () => Results.Json(new
+    app.MapGet("/version", (HttpContext ctx) =>
     {
-        status = 200,
-        version = "1.0.0",
-        name = "DeEarthX.Core",
-        buildTime = DateTime.UtcNow.ToString("o")
-    }, jsonOpts));
+        ctx.Response.Headers["Cache-Control"] = "public, max-age=3600";
+        return Results.Json(new
+        {
+            status = 200,
+            version = "1.0.0",
+            name = "DeEarthX.Core",
+            buildTime = DateTime.UtcNow.ToString("o")
+        }, jsonOpts);
+    });
 
     app.MapPost("/start", async (HttpRequest req, DexService dex, CancellationToken ct) =>
     {
@@ -191,6 +178,7 @@ static void RegisterRoutes(WebApplication app, JsonSerializerOptions jsonOpts)
         _ = Task.Run(async () =>
         {
             try { await dex.MainAsync(buffer, isServerMode, file.FileName, template, CancellationToken.None); }
+            catch (OperationCanceledException) { log.Warn("整合包处理任务已取消"); }
             catch (Exception ex) { log.Error("任务执行失败", ex); }
         }, ct);
 
@@ -246,7 +234,6 @@ static void RegisterRoutes(WebApplication app, JsonSerializerOptions jsonOpts)
     RegisterDownloadRoutes(app, jsonOpts, log);
     RegisterGalaxyRoutes(app, jsonOpts, log);
     RegisterTemplateRoutes(app, jsonOpts, log);
-    RegisterGuardianRoutes(app, jsonOpts);
     RegisterPluginRoutes(app, jsonOpts, log);
 }
 
@@ -312,6 +299,11 @@ static void RegisterDownloadRoutes(WebApplication app, JsonSerializerOptions jso
             try
             {
                 await modLoaderService.MlSetupAsync(loader, mcVersion, loaderVersion, path, messageService, null, CancellationToken.None);
+            }
+            catch (OperationCanceledException)
+            {
+                log.Warn("服务端安装任务已取消");
+                await messageService.ServerInstallError("安装任务已取消");
             }
             catch (Exception ex)
             {
@@ -488,38 +480,6 @@ static void RegisterTemplateRoutes(WebApplication app, JsonSerializerOptions jso
     });
 }
 
-static void RegisterGuardianRoutes(WebApplication app, JsonSerializerOptions jsonOpts)
-{
-    var controller = app.Services.GetRequiredService<GuardianController>();
-
-    app.MapGet("/guardian/status", () =>
-    {
-        var enabled = controller.State != GuardianState.Idle;
-        return Results.Json(new
-        {
-            status = 200,
-            enabled,
-            guardianStatus = controller.State.ToString(),
-            processInfo = controller.GetProcessInfo(),
-            checkpoints = controller.GetCheckpoints(),
-            reports = controller.GetReportsList()
-        }, jsonOpts);
-    });
-
-    app.MapGet("/guardian/logs", (HttpRequest req) =>
-    {
-        var linesStr = req.Query["lines"].ToString();
-        int.TryParse(linesStr, out var lines);
-        if (lines <= 0) lines = 100;
-        var buffer = controller.GetLogBuffer();
-        var slice = buffer.Skip(Math.Max(0, buffer.Count - lines)).ToList();
-        return Results.Json(new { status = 200, logs = slice }, jsonOpts);
-    });
-
-    app.MapGet("/guardian/reports", () =>
-        Results.Json(new { status = 200, reports = controller.GetReportsList() }, jsonOpts));
-}
-
 static void RegisterPluginRoutes(WebApplication app, JsonSerializerOptions jsonOpts, ILogService log)
 {
     var pm = app.Services.GetRequiredService<PluginManager>();
@@ -592,6 +552,38 @@ static void RegisterPluginRoutes(WebApplication app, JsonSerializerOptions jsonO
             return Results.Json(new { status = 400, message = "插件名称和作者不能为空" }, jsonOpts);
         var p = await pm.CreatePluginAsync(body.Name, body.Author, body.Url ?? "", ct);
         return Results.Json(new { status = 200, message = "插件创建成功", data = p }, jsonOpts);
+    });
+
+    app.MapGet("/plugins/{id}/validate", (string id) =>
+    {
+        var result = pm.ValidatePlugin(id);
+        return Results.Json(new { status = 200, data = result }, jsonOpts);
+    });
+
+    app.MapPost("/plugins/{id}/reload", async (string id, CancellationToken ct) =>
+    {
+        try
+        {
+            await pm.ReloadPluginAsync(id, ct);
+            return Results.Json(new { status = 200, message = "插件已重新加载" }, jsonOpts);
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(new { status = 404, message = ex.Message }, jsonOpts, null, 404);
+        }
+    });
+
+    app.MapGet("/plugins/{id}/files", async (string id, CancellationToken ct) =>
+    {
+        try
+        {
+            var files = await pm.ListPluginFilesAsync(id, ct);
+            return Results.Json(new { status = 200, data = files }, jsonOpts);
+        }
+        catch (Exception ex)
+        {
+            return Results.Json(new { status = 404, message = ex.Message }, jsonOpts, null, 404);
+        }
     });
 
     app.MapGet("/plugins/folder", () =>

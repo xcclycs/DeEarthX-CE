@@ -8,7 +8,6 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<ISocketIOServer, SocketIOServer>();
         services.AddSingleton<IMessageService, MessageService>();
-        services.AddSingleton<IGuardianBroadcaster, GuardianBroadcaster>();
         return services;
     }
 }

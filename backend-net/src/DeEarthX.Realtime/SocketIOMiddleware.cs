@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,8 @@ public sealed class SocketIOMiddleware
     private const char SioConnect = '0';
     private const char SioDisconnect = '1';
     private const char SioEvent = '2';
+
+    private const int ReceiveBufferSize = 8192;
 
     private readonly RequestDelegate _next;
     private readonly ILogService _log;
@@ -70,6 +73,7 @@ public sealed class SocketIOMiddleware
                 await context.Response.WriteAsync("transport not supported");
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             _log.Error("Socket.IO 中间件异常", ex);
@@ -103,6 +107,7 @@ public sealed class SocketIOMiddleware
             return;
         }
 
+        session.LastPing = DateTime.UtcNow;
         var frame = await session.PollAsync(25000, context.RequestAborted);
         await context.Response.WriteAsync(frame ?? EngineNoop.ToString());
     }
@@ -154,7 +159,7 @@ public sealed class SocketIOMiddleware
 
         _log.Info($"Socket.IO 客户端连接: sid={session.Sid} (websocket, connected={isNew})");
 
-        var receiveBuffer = new byte[8192];
+        var receiveBuffer = ArrayPool<byte>.Shared.Rent(ReceiveBufferSize);
         try
         {
             while (ws.State == WebSocketState.Open)
@@ -166,7 +171,8 @@ public sealed class SocketIOMiddleware
                     result = await ws.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), context.RequestAborted);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "client closed", CancellationToken.None);
+                        try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "client closed", CancellationToken.None); }
+                        catch { }
                         break;
                     }
                     ms.Write(receiveBuffer, 0, result.Count);
@@ -174,7 +180,7 @@ public sealed class SocketIOMiddleware
 
                 if (result.MessageType == WebSocketMessageType.Close) break;
 
-                var text = Encoding.UTF8.GetString(ms.ToArray());
+                var text = Encoding.UTF8.GetString(ms.GetBuffer().AsSpan(0, (int)ms.Length));
                 var packets = text.Split('\x1e', StringSplitOptions.RemoveEmptyEntries);
                 foreach (var packet in packets)
                 {
@@ -187,6 +193,7 @@ public sealed class SocketIOMiddleware
         catch (Exception ex) { _log.Error("WebSocket 接收循环异常", ex); }
         finally
         {
+            ArrayPool<byte>.Shared.Return(receiveBuffer);
             session.DetachWebSocket(ws);
             if (!session.HasWebSocket)
             {
@@ -205,6 +212,8 @@ public sealed class SocketIOMiddleware
         switch (type)
         {
             case EnginePing:
+                if (server.TryGetSession(sid, out var pingSession))
+                    pingSession.LastPing = DateTime.UtcNow;
                 if (ws is not null)
                     await SendWsAsync(ws, EnginePong.ToString(), CancellationToken.None);
                 else if (server.TryGetSession(sid, out var pongSession))
@@ -261,13 +270,15 @@ public sealed class SocketIOMiddleware
         catch { return; }
         using (doc)
         {
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return;
-            var arr = doc.RootElement.EnumerateArray().ToList();
-            if (arr.Count == 0) return;
-            var eventName = arr[0].GetString();
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Array) return;
+
+            var enumerator = root.EnumerateArray();
+            if (!enumerator.MoveNext()) return;
+            var eventName = enumerator.Current.GetString();
             if (string.IsNullOrEmpty(eventName)) return;
 
-            JsonElement? arg = arr.Count > 1 ? arr[1] : null;
+            JsonElement? arg = enumerator.MoveNext() ? enumerator.Current : null;
             await server.DispatchEventAsync(eventName!, arg);
         }
     }

@@ -113,8 +113,6 @@ public sealed class ConfigService : IConfigService
     {
         var mirror = c.Mirror;
         var filter = c.Filter;
-        var guardian = c.Guardian ?? new GuardianConfig();
-        var ai = guardian.Ai;
 
         var result = new DeEarthXConfig
         {
@@ -130,29 +128,13 @@ public sealed class ConfigService : IConfigService
                 Dexpub = GetEnvBool("DEEARTHX_FILTER_DEXPUB", filter.Dexpub),
                 Mixins = GetEnvBool("DEEARTHX_FILTER_MIXINS", filter.Mixins),
                 Modrinth = GetEnvBool("DEEARTHX_FILTER_MODRINTH", filter.Modrinth),
-                McmodFilter = GetEnvBoolNullable("DEEARTHX_FILTER_MCMOD", filter.McmodFilter ?? false),
-                AiFilter = GetEnvBoolNullable("DEEARTHX_FILTER_AI", filter.AiFilter ?? false)
+                McmodFilter = GetEnvBoolNullable("DEEARTHX_FILTER_MCMOD", filter.McmodFilter ?? false)
             },
             Oaf = GetEnvBool("DEEARTHX_OAF", c.Oaf),
             AutoZip = GetEnvBool("DEEARTHX_AUTO_ZIP", c.AutoZip),
             Port = GetEnvInt("DEEARTHX_PORT", c.Port ?? DeEarthXConfig.CreateDefault().Port!.Value),
             Host = GetEnvString("DEEARTHX_HOST", c.Host ?? DeEarthXConfig.CreateDefault().Host!),
-            JavaPath = GetEnvStringNullable("DEEARTHX_JAVA_PATH", c.JavaPath),
-            Guardian = new GuardianConfig
-            {
-                Enabled = GetEnvBool("DEEARTHX_GUARDIAN_ENABLED", guardian.Enabled),
-                Ai = new GuardianAiConfig
-                {
-                    Provider = GetEnvString("DEEARTHX_GUARDIAN_AI_PROVIDER", ai.Provider),
-                    ApiKey = GetEnvString("DEEARTHX_GUARDIAN_API_KEY", ai.ApiKey),
-                    Model = GetEnvString("DEEARTHX_GUARDIAN_AI_MODEL", ai.Model),
-                    BaseUrl = GetEnvString("DEEARTHX_GUARDIAN_AI_BASE_URL", ai.BaseUrl),
-                    MaxTokens = GetEnvIntNullable("DEEARTHX_GUARDIAN_AI_MAX_TOKENS", ai.MaxTokens)
-                },
-                AutoAcceptLowRisk = GetEnvBool("DEEARTHX_GUARDIAN_AUTO_ACCEPT", guardian.AutoAcceptLowRisk),
-                MaxConsecutiveCrashes = GetEnvInt("DEEARTHX_GUARDIAN_MAX_CRASHES", guardian.MaxConsecutiveCrashes),
-                MonitoringTimeout = GetEnvInt("DEEARTHX_GUARDIAN_TIMEOUT", guardian.MonitoringTimeout)
-            }
+            JavaPath = GetEnvStringNullable("DEEARTHX_JAVA_PATH", c.JavaPath)
         };
 
         return result;

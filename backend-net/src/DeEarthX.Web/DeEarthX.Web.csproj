@@ -4,7 +4,6 @@
     <ProjectReference Include="..\DeEarthX.ModLoader\DeEarthX.ModLoader.csproj" />
     <ProjectReference Include="..\DeEarthX.Platform\DeEarthX.Platform.csproj" />
     <ProjectReference Include="..\DeEarthX.Dearth\DeEarthX.Dearth.csproj" />
-    <ProjectReference Include="..\DeEarthX.Guardian\DeEarthX.Guardian.csproj" />
     <ProjectReference Include="..\DeEarthX.Plugins\DeEarthX.Plugins.csproj" />
     <ProjectReference Include="..\DeEarthX.Templates\DeEarthX.Templates.csproj" />
     <ProjectReference Include="..\DeEarthX.Galaxy\DeEarthX.Galaxy.csproj" />
